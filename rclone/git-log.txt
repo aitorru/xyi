@@ -1,0 +1,43 @@
+commit 78d0f48b98a27031c3478f1730af9255bed339a6
+Author: Nick Craig-Wood <nick@craig-wood.com>
+Date:   Thu Mar 16 09:42:50 2023 +0000
+
+    Version v1.62.2
+
+commit 785c6d5ab611a424006653805a3baca682f7f5b1
+Author: Lesmiscore <nao20010128@gmail.com>
+Date:   Thu Mar 16 03:09:29 2023 +0900
+
+    ftp: fix 426 errors on downloads with vsftpd
+    
+    Sometimes vsftpd returns a 426 error when closing the stream even when
+    all the data has been transferred successfully. This is some TLS
+    protocol mismatch.
+    
+    Rclone has code to deal with this already, but the error returned from
+    Close was wrapped in a multierror so the detection didn't work.
+    
+    This properly extract `textproto.Error` from the errors returned by
+    `github.com/jlaffaye/ftp` in all the cases.
+    
+    See: https://forum.rclone.org/t/vsftpd-vs-rclone-part-2/36774
+
+commit f99d4cd5c736b9650344a71661281fe5db41ada0
+Author: asdffdsazqqq <90116442+asdffdsazqqq@users.noreply.github.com>
+Date:   Wed Mar 15 12:21:37 2023 -0400
+
+    docs: fix size documentation
+    
+    change `Google Drive` to `Google Docs`
+
+commit 0056c22c6fc1887c285dba99c08fcf6d3a8f5a6c
+Author: Nick Craig-Wood <nick@craig-wood.com>
+Date:   Wed Mar 15 15:57:08 2023 +0000
+
+    docker volume plugin: add missing fuse3 dependency #6844
+
+commit 4452be379d0233a316ed9c6920696da525a9247e
+Author: Nick Craig-Wood <nick@craig-wood.com>
+Date:   Wed Mar 15 14:51:48 2023 +0000
+
+    Start v1.62.2-DEV development

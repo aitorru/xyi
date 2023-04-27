@@ -1,0 +1,31 @@
+name: deploy
+on:
+  push:
+    branches:
+      - main
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Setup | Rust
+        uses: ATiltedTree/setup-rust@latest
+        with:
+          rust-version: stable
+      - run: rustup target add i686-pc-windows-msvc
+      - run: cargo build --release --target stable-i686-pc-windows-gnu
+      - run: rustup target add x86_64-pc-windows-msvc
+      - run: cargo build --release --target x86_64-pc-windows-msvc
+      - run: cargo build --release
+      - run: mkdir target/32bit
+      - run: mkdir target/64bit
+      - run: cp target/i686-pc-windows-msvc/release/*.exe target/32bit.exe
+      - run: cp target/x86_64-pc-windows-msvc/release/*.exe target/64bit.exe
+      - uses: "marvinpinto/action-automatic-releases@latest"
+        with:
+          repo_token: "${{ secrets.GITHUB_TOKEN }}"
+          automatic_release_tag: "latest"
+          prerelease: true
+          title: "Automatic Development Build"
+          files: |
+            target/*.exe
