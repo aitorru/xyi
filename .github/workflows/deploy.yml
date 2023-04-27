@@ -12,11 +12,12 @@ jobs:
         uses: ATiltedTree/setup-rust@v1
         with:
           rust-version: stable
-      - run: rustup target add i686-pc-windows-gnu
-      - run: cargo build --release --target i686-pc-windows-gnu
-      - run: rustup target add x86_64-pc-windows-gnu
-      - run: cargo build --release --target x86_64-pc-windows-gnu
-      - run: cargo build --release
+      - name: Setup | Cross
+      - run: cargo install cross --git https://github.com/cross-rs/cross
+      - name: Build | Release 32 bits
+      - run: cross build --release --target i686-pc-windows-gnu
+      - name: Build | Release 64 bits
+      - run: cross build --release --target x86_64-pc-windows-gnu
       - run: mkdir target/32bit
       - run: mkdir target/64bit
       - run: cp target/i686-pc-windows-gnu/release/*.exe target/32bit.exe
