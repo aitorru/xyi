@@ -9,7 +9,7 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - name: Setup | Rust
-        uses: ATiltedTree/setup-rust@latest
+        uses: ATiltedTree/setup-rust@v2
         with:
           rust-version: stable
       - run: rustup target add i686-pc-windows-msvc
