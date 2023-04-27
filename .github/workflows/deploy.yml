@@ -12,11 +12,8 @@ jobs:
         uses: ATiltedTree/setup-rust@v1
         with:
           rust-version: stable
-      - name: Setup | Cross
       - run: cargo install cross --git https://github.com/cross-rs/cross
-      - name: Build | Release 32 bits
       - run: cross build --release --target i686-pc-windows-gnu
-      - name: Build | Release 64 bits
       - run: cross build --release --target x86_64-pc-windows-gnu
       - run: mkdir target/32bit
       - run: mkdir target/64bit
