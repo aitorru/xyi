@@ -1,4 +1,7 @@
-use std::io::{BufRead, BufReader, BufWriter, Read, Write};
+use std::{
+    io::{BufRead, BufReader, BufWriter, Read, Write},
+    os::windows::prelude::MetadataExt,
+};
 
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
@@ -20,14 +23,14 @@ struct FoldersSource {
     xyi.exe copy -f <from> -t <to>
     ```
 */
-pub async fn entry(from: String, to: String, force: bool, skip: bool) {
+pub async fn entry(from: String, to: String, force: bool, skip: bool, hash_check: bool) {
     // Create a new group of progress bars
     let bar = MultiProgress::new();
-    let style_scanning = ProgressStyle::with_template("[{elapsed_precise}] {msg}").unwrap();
+    let style_scanning = ProgressStyle::with_template("[{elapsed}] {msg:40} [{eta}]").unwrap();
     let style_files_transfering =
-        ProgressStyle::with_template("[{elapsed_precise}] {bar:20} {pos}/{len} {msg}").unwrap();
+        ProgressStyle::with_template("[{elapsed}] {bar:20} {pos}/{len} {msg:40} [{eta}]").unwrap();
     let style_files_transfering_files =
-        ProgressStyle::with_template("[{elapsed_precise}] {bar:20} {msg}").unwrap();
+        ProgressStyle::with_template("[{elapsed}] {bar:20} {msg:40} [{eta}]").unwrap();
 
     let folder_bar = bar.add(ProgressBar::new(1));
     folder_bar.set_style(style_scanning.clone());
@@ -49,6 +52,7 @@ pub async fn entry(from: String, to: String, force: bool, skip: bool) {
         to_path,
         force,
         skip,
+        hash_check,
     )
     .await;
 }
@@ -108,6 +112,7 @@ async fn copy_files(
     to_path: std::path::PathBuf,
     force: bool,
     skip: bool,
+    hash_check: bool,
 ) {
     transfering_bar_global.set_message("Copying files");
     files.par_iter().for_each(|file| {
@@ -146,11 +151,10 @@ async fn copy_files(
         }
         let to_path = to_path.join(path.file_name().unwrap());
 
-        // Copy he files manually to get the progress bar
+        // Open the from file for reading operations
         let mut from_file = std::fs::File::open(from_path.clone()).unwrap();
-        let mut to_file = std::fs::File::open(&to_path).unwrap();
 
-        let individual_progress = transfering_bar_multi.insert_before(
+        let individual_progress = transfering_bar_multi.insert_after(
             transfering_bar_global,
             ProgressBar::new(from_file.metadata().unwrap().len()),
         );
@@ -158,9 +162,21 @@ async fn copy_files(
         individual_progress.set_message(format!("Checking {}", name));
         // If the to_path is a file, get the hash and compare them
         if to_path.is_file() && !force {
-            if skip {
-                individual_progress.finish_with_message(format!("File {} already exists", name));
+            if to_path.metadata().unwrap().file_size() == from_file.metadata().unwrap().file_size()
+                && !hash_check
+            {
+                // individual_progress.finish_with_message(format!("File {} already exists", name));
                 transfering_bar_global.inc(1);
+                individual_progress.finish_and_clear();
+                return;
+            } else if !hash_check {
+                individual_progress.finish_and_clear();
+                return;
+            }
+            if skip {
+                // individual_progress.finish_with_message(format!("File {} already exists", name));
+                transfering_bar_global.inc(1);
+                individual_progress.finish_and_clear();
                 return;
             }
             // Use seahash to compare the hashes of the files
@@ -169,8 +185,8 @@ async fn copy_files(
             // Read the files in chunks, hash them and compare. If some operation fails, it means that the files are different.
             let mut same_file = true;
             loop {
-                let mut buffer_from = [0u8; 1024];
-                let mut buffer_to = [0u8; 1024];
+                let mut buffer_from = [0u8; 1024 * 10];
+                let mut buffer_to = [0u8; 1024 * 10];
                 let read_from = from_file.read(&mut buffer_from).unwrap();
                 let _ = to_file.read(&mut buffer_to).unwrap();
                 if hash(&buffer_from) != hash(&buffer_to) {
@@ -188,7 +204,8 @@ async fn copy_files(
                 individual_progress.inc(read_from as u64);
             }
             if same_file {
-                individual_progress.finish_with_message(format!("File {} already exists", name));
+                // individual_progress.finish_with_message(format!("File {} already exists", name));
+                individual_progress.finish_and_clear();
                 transfering_bar_global.inc(1);
                 return;
             }
@@ -197,6 +214,8 @@ async fn copy_files(
         individual_progress.set_position(0);
         individual_progress.set_message(format!("Copying {}", name));
         let mut reader_buffer = BufReader::new(&mut from_file);
+        // At this point we can know for sure that to_path does not exists
+        let mut to_file = std::fs::File::create(&to_path).unwrap();
         let mut writer_buffer = BufWriter::new(&mut to_file);
         loop {
             let bytes_read;
@@ -212,7 +231,8 @@ async fn copy_files(
             individual_progress.inc(bytes_read as u64);
             reader_buffer.consume(bytes_read);
         }
-        individual_progress.finish_with_message(format!("Done copying file {}", name));
+        // individual_progress.finish_with_message(format!("Done copying file {}", name));
+        individual_progress.finish_and_clear();
         transfering_bar_global.inc(1);
     });
     transfering_bar_global.finish_with_message("Done copying files");

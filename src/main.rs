@@ -50,6 +50,22 @@ async fn main() {
                         .help("Skip copy if file skip but does not check if the file is the same")
                         .required(false)
                         .num_args(0),
+                )
+                .arg(
+                    Arg::new("threads")
+                        .short('T')
+                        .long("threads")
+                        .help("Number of threads to use")
+                        .required(false)
+                        .num_args(1),
+                )
+                .arg(
+                    Arg::new("hash")
+                        .short('H')
+                        .long("hash")
+                        .help("Check the hash of the local file and the remote file before copying")
+                        .required(false)
+                        .num_args(0),
                 ),
         )
         .get_matches();
@@ -60,7 +76,14 @@ async fn main() {
             let to = copy_match.get_one::<String>("to").unwrap();
             let force = *copy_match.get_one::<bool>("force").unwrap();
             let skip = *copy_match.get_one::<bool>("skip").unwrap();
-            commands::copy::entry(from.to_string(), to.to_string(), force, skip).await;
+            let hash_check = *copy_match.get_one::<bool>("hash").unwrap();
+            let threads = copy_match.get_one::<String>("threads");
+            let threads = match threads {
+                Some(threads) => threads,
+                None => "2",
+            };
+            env::set_var("RAYON_NUM_THREADS", threads.to_string());
+            commands::copy::entry(from.to_string(), to.to_string(), force, skip, hash_check).await;
         }
         _ => {}
     }
