@@ -171,7 +171,7 @@ async fn copy_files(
                 return;
             } else if !hash_check {
                 individual_progress.finish_and_clear();
-                return;
+                return; 
             }
             if skip {
                 // individual_progress.finish_with_message(format!("File {} already exists", name));
