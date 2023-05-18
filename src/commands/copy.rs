@@ -1,6 +1,5 @@
 use std::{
     io::{BufRead, BufReader, BufWriter, Read, Write},
-    os::windows::prelude::MetadataExt,
 };
 
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
@@ -162,7 +161,7 @@ async fn copy_files(
         individual_progress.set_message(format!("Checking {}", name));
         // If the to_path is a file, get the hash and compare them
         if to_path.is_file() && !force {
-            if to_path.metadata().unwrap().file_size() == from_file.metadata().unwrap().file_size()
+            if std::fs::metadata(&to_path).unwrap().len() == std::fs::metadata(from_path.clone()).unwrap().len() && !hash_check
                 && !hash_check
             {
                 // individual_progress.finish_with_message(format!("File {} already exists", name));
@@ -171,7 +170,7 @@ async fn copy_files(
                 return;
             } else if !hash_check {
                 individual_progress.finish_and_clear();
-                return;
+                return; 
             }
             if skip {
                 // individual_progress.finish_with_message(format!("File {} already exists", name));

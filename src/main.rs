@@ -68,7 +68,36 @@ async fn main() {
                         .num_args(0),
                 ),
         )
+        .subcommand(
+            Command::new("serve")
+                .about("serve files in the current directory using HTTP")
+                .short_flag('S')
+                .long_flag("serve")
+                .arg(
+                    Arg::new("port")
+                        .short('p')
+                        .long("port")
+                        .help("Port to serve")
+                        .required(false)
+                        .num_args(1),
+                )
+                .arg(
+                    Arg::new("dir")
+                        .short('d')
+                        .long("dir")
+                        .help("Directory to start serving")
+                        .required(false)
+                        .num_args(1),
+                ),
+        )
         .get_matches();
+
+    // Set backtrace to short if not debug
+    #[cfg(not(debug_assertions))]
+    env::set_var("RUST_BACKTRACE", "0");
+
+    #[cfg(debug_assertions)]
+    env::set_var("RUST_BACKTRACE", "full");
 
     match command_match.subcommand() {
         Some(("copy", copy_match)) => {
@@ -84,6 +113,17 @@ async fn main() {
             };
             env::set_var("RAYON_NUM_THREADS", threads.to_string());
             commands::copy::entry(from.to_string(), to.to_string(), force, skip, hash_check).await;
+        }
+        Some(("serve", serve_match)) => {
+            let port = match serve_match.get_one::<String>("port") {
+                Some(port) => port,
+                None => "8000",
+            };
+            let starting_dir = match serve_match.get_one::<String>("dir") {
+                Some(dir) => dir,
+                None => ".",
+            };
+            commands::serve::entry(port, starting_dir).await;
         }
         _ => {}
     }
