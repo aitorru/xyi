@@ -175,7 +175,6 @@ async fn update_state(app_state: AppState, mut ws: WebSocket) {
 }
 
 async fn download_file(query: Query<DownloadQuery>) -> impl IntoResponse {
-    println!("Downloading file: {}", query.path);
     // `File` implements `AsyncRead`
     let file = match tokio::fs::File::open(&query.path).await {
         Ok(file) => file,

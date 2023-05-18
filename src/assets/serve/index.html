@@ -60,7 +60,7 @@
                             <ul>
                                 <li onclick=${() => ws_updator.send(JSON.stringify({ message_type: "up_dir", message: "" }))}>📁 ..</li>
                                 ${props.data.folders.map((folder) => html`<li onclick=${() => { ws_updator.send(JSON.stringify({ message_type: "change_dir", message: folder.path })) }}> 📁 ${folder.name} </li>`)}
-                                ${props.data.files.map((file) => html`<li><a href=${new URL("/download?path=" + file.path, window.location.href)}>📋 ${file.name} </a></li>`)}
+                                ${props.data.files.map((file) => html`<li><a target="_blank" href=${new URL("/download?path=" + file.path, window.location.href)}>📋 ${file.name} </a></li>`)}
                             </ul>
                             <div class="divider"></div>
                             <h3> Socket connected: ${socket_connected ? "🟢" : "🟡"} </h3>
@@ -79,25 +79,51 @@
         ws.onclose = (ev) => {
             socket_connected = false;
             setTimeout(() => {
-                console.log("Reloading state")
                 let url_r = new URL("/state", window.location.href);
                 // http => ws
                 // https => wss
                 url_r.protocol = url.protocol.replace("http", "ws");
+                console.log("Reloading state", url_r);
                 ws = new WebSocket(url.href);
-            }, 1400);
+            }, 2000);
+        };
+        ws.onerror = (ev) => {
+            socket_connected = false;
+            setTimeout(() => {
+                let url_r = new URL("/state", window.location.href);
+                // http => ws
+                // https => wss
+                url_r.protocol = url.protocol.replace("http", "ws");
+                console.log("Reloading state", url_r);
+                ws = new WebSocket(url.href);
+            }, 2000);
         };
         ws_updator.onclose = (ev) => {
             setTimeout(() => {
-                console.log("Reloading update_state")
                 let url_r = new URL("/update_state", window.location.href);
                 // http => ws
                 // https => wss
                 url_r.protocol = url.protocol.replace("http", "ws");
+                console.log("Reloading update_state", url_r)
                 ws_updator = new WebSocket(url.href);
-            }, 1500);
+            }, 2000);
         };
-
+        ws_updator.onerror = (ev) => {
+            setTimeout(() => {
+                let url_r = new URL("/update_state", window.location.href);
+                // http => ws
+                // https => wss
+                url_r.protocol = url.protocol.replace("http", "ws");
+                console.log("Reloading update_state", url_r)
+                ws_updator = new WebSocket(url.href);
+            }, 2000);
+        };
+        window.onbeforeunload = function () {
+            ws.onclose = function () { }; // disable onclose handler first
+            ws.close();
+            ws_updator.onclose = function () { }; // disable onclose handler first
+            ws_updator.close();
+        };
     </script>
 </head>
 
