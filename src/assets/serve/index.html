@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <title>Serve xyi command</title>
+    <meta charset="utf-8">
+    <style>
+        body {
+            font-family: sans-serif;
+            margin: 0;
+            padding: 1rem;
+            background-color: #e7ecef;
+        }
+
+        .divider {
+            border-bottom: 3px solid black;
+            margin: 10px 0;
+        }
+
+        ul {
+            list-style: outside;
+            padding: 2rem;
+            margin: 5rem;
+            /* Create a rounded border with shadow */
+            border-radius: 10px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.368);
+            background-color: white;
+        }
+
+        li {
+            padding: 10px 0;
+        }
+    </style>
+    <script type="module">
+        import { h, render } from 'https://esm.sh/preact';
+        import htm from 'https://esm.sh/htm';
+
+        // Initialize htm with Preact
+        const html = htm.bind(h);
+
+        let socket_connected = false;
+        // Connect to websocket
+        let url = new URL("/state", window.location.href);
+        // http => ws
+        // https => wss
+        url.protocol = url.protocol.replace("http", "ws");
+        let ws = new WebSocket(url.href);
+
+        url = new URL("/update_state", window.location.href);
+        // http => ws
+        // https => wss
+        url.protocol = url.protocol.replace("http", "ws");
+        let ws_updator = new WebSocket(url.href);
+
+        function App(props) {
+
+            return html`<div>
+                            <h1> Current dir: ${props.data.current_dir} </h1>
+                            <div class="divider"></div>
+                            <ul>
+                                <li onclick=${() => ws_updator.send(JSON.stringify({ message_type: "up_dir", message: "" }))}>📁 ..</li>
+                                ${props.data.folders.map((folder) => html`<li onclick=${() => { ws_updator.send(JSON.stringify({ message_type: "change_dir", message: folder.path })) }}> 📁 ${folder.name} </li>`)}
+                                ${props.data.files.map((file) => html`<li><a href=${new URL("/download?path=" + file.path, window.location.href)}>📋 ${file.name} </a></li>`)}
+                            </ul>
+                            <div class="divider"></div>
+                            <h3> Socket connected: ${socket_connected ? "🟢" : "🟡"} </h3>
+                        </div>
+                `;
+        }
+
+
+        ws.onmessage = (ev) => {
+            // Append the blob incoming to the array
+            render(html`<${App} data="${JSON.parse(ev.data)}" status="${socket_connected}" />`, document.body);
+        };
+        ws.onopen = (ev) => {
+            socket_connected = true;
+        };
+        ws.onclose = (ev) => {
+            socket_connected = false;
+            setTimeout(() => {
+                console.log("Reloading state")
+                let url_r = new URL("/state", window.location.href);
+                // http => ws
+                // https => wss
+                url_r.protocol = url.protocol.replace("http", "ws");
+                ws = new WebSocket(url.href);
+            }, 1400);
+        };
+        ws_updator.onclose = (ev) => {
+            setTimeout(() => {
+                console.log("Reloading update_state")
+                let url_r = new URL("/update_state", window.location.href);
+                // http => ws
+                // https => wss
+                url_r.protocol = url.protocol.replace("http", "ws");
+                ws_updator = new WebSocket(url.href);
+            }, 1500);
+        };
+
+    </script>
+</head>
+
+<body>
+</body>
+
+
+</html>
