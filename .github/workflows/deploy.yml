@@ -20,10 +20,10 @@ jobs:
       - run: cross build --release --target aarch64-apple-darwin
       - run: mkdir target/32bit
       - run: mkdir target/64bit
-      - run: cp target/i686-pc-windows-gnu/release/*.exe target/32bit.exe
-      - run: cp target/x86_64-pc-windows-gnu/release/*.exe target/64bit.exe
-      - run: cp target/x86_64-apple-darwin/release/*.exe target/64macOS
-      - run: cp target/aarch64-apple-darwin/release/*.exe target/armmacOS
+      - run: cp target/i686-pc-windows-gnu/release/*.exe target/xyi-32bit.exe
+      - run: cp target/x86_64-pc-windows-gnu/release/*.exe target/xyi-64bit.exe
+      - run: cp target/x86_64-apple-darwin/release/*.exe target/xyi-64macOS
+      - run: cp target/aarch64-apple-darwin/release/*.exe target/xyi-armmacOS
       - uses: "marvinpinto/action-automatic-releases@latest"
         with:
           repo_token: "${{ secrets.GITHUB_TOKEN }}"
@@ -31,4 +31,4 @@ jobs:
           prerelease: true
           title: "Automatic Development Build"
           files: |
-            target/*.exe
+            target/*xyi*
