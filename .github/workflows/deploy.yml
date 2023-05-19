@@ -16,10 +16,14 @@ jobs:
       - run: cargo install cross --git https://github.com/cross-rs/cross
       - run: cross build --release --target i686-pc-windows-gnu
       - run: cross build --release --target x86_64-pc-windows-gnu
+      - run: cross build --release --target x86_64-apple-darwin
+      - run: cross build --release --target aarch64-apple-darwin
       - run: mkdir target/32bit
       - run: mkdir target/64bit
       - run: cp target/i686-pc-windows-gnu/release/*.exe target/32bit.exe
       - run: cp target/x86_64-pc-windows-gnu/release/*.exe target/64bit.exe
+      - run: cp target/x86_64-apple-darwin/release/*.exe target/64macOS
+      - run: cp target/aarch64-apple-darwin/release/*.exe target/armmacOS
       - uses: "marvinpinto/action-automatic-releases@latest"
         with:
           repo_token: "${{ secrets.GITHUB_TOKEN }}"
