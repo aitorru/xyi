@@ -9,6 +9,7 @@ use axum::{
     },
     http::{header, StatusCode},
 };
+use base64::Engine;
 use serde::{Deserialize, Serialize};
 use std::{
     path::PathBuf,
@@ -176,10 +177,28 @@ async fn update_state(app_state: AppState, mut ws: WebSocket) {
 
 async fn download_file(query: Query<DownloadQuery>) -> impl IntoResponse {
     // `File` implements `AsyncRead`
-    let file = match tokio::fs::File::open(&query.path).await {
+    let path = match base64::engine::general_purpose::STANDARD.decode(&query.path) {
+        Ok(path) => match String::from_utf8(path) {
+            Ok(path) => path,
+            Err(err) => {
+                return Err((
+                    StatusCode::NOT_FOUND,
+                    format!("Format not correct: {}", err),
+                ))
+            }
+        },
+        Err(err) => {
+            return Err((
+                StatusCode::NOT_FOUND,
+                format!("Format not correct: {}", err),
+            ))
+        }
+    };
+    let file = match tokio::fs::File::open(&path).await {
         Ok(file) => file,
         Err(err) => return Err((StatusCode::NOT_FOUND, format!("File not found: {}", err))),
     };
+    let content_size = file.metadata().await.unwrap().len().to_string();
     // convert the `AsyncRead` into a `Stream`
     let stream = ReaderStream::new(file);
     // convert the `Stream` into an `axum::body::HttpBody`
@@ -194,13 +213,10 @@ async fn download_file(query: Query<DownloadQuery>) -> impl IntoResponse {
             header::CONTENT_DISPOSITION,
             &format!(
                 "attachment; filename=\"{}\"",
-                PathBuf::from(&query.path)
-                    .file_name()
-                    .unwrap()
-                    .to_str()
-                    .unwrap()
+                PathBuf::from(&path).file_name().unwrap().to_str().unwrap()
             ),
         ),
+        (header::CONTENT_LENGTH, &content_size),
     ];
 
     Ok((headers, body).into_response())
