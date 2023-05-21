@@ -3,7 +3,7 @@
 ## Install
 
 ```bash
-cargo install https://github.com/aitorru/xyi
+cargo install --git https://github.com/aitorru/xyi
 ```
 
 ## Coreutils
