@@ -1,3 +1,4 @@
+use axum::http::Response;
 use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::Router;
@@ -69,6 +70,8 @@ pub async fn entry(port: &str, starting_dir: &str) {
         .route("/state", get(ws))
         .route("/update_state", get(ws_change))
         .route("/download", get(download_file))
+        .route("/preact.mjs", get(download_preact_mjs))
+        .route("/htm.mjs", get(download_htm_mjs))
         .with_state(shared_state);
     let address = format!("0.0.0.0:{}", port);
     println!("Starting server on address http://localhost:{}", port);
@@ -220,4 +223,20 @@ async fn download_file(query: Query<DownloadQuery>) -> impl IntoResponse {
     ];
 
     Ok((headers, body).into_response())
+}
+
+async fn download_preact_mjs() -> impl IntoResponse {
+    let js = include_str!("../assets/serve/preact.mjs");
+    Response::builder()
+        .header("content-type", "application/javascript;charset=utf-8")
+        .body(js.to_string())
+        .unwrap()
+}
+
+async fn download_htm_mjs() -> impl IntoResponse {
+    let js = include_str!("../assets/serve/htm.mjs");
+    Response::builder()
+        .header("content-type", "application/javascript;charset=utf-8")
+        .body(js.to_string())
+        .unwrap()
 }

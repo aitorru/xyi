@@ -1,1 +1,3 @@
 /target
+src/assets/serve/htm.mjs
+src/assets/serve/preact.mjs
