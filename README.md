@@ -1,6 +1,17 @@
 # xyi
 
+## Install
+
+```bash
+cargo install https://github.com/aitorru/xyi
+```
+
 ## Coreutils
+
+A collection of utils that you may need.
+
+- [x] Copy files
+- [x] Serve static files
 
 ### copy - (respect the origin)
 
@@ -22,4 +33,19 @@ Usage: xyi.exe {copy|--copy|-C} [OPTIONS] --from <from> --to <to>
     -H, --hash               Check the hash of the local file and the remote file before copying
     -h, --help               Print help
 
+```
+
+### serve
+
+Static file server.
+
+```
+serve files in the current directory using HTTP
+
+Usage: xyi {serve|--serve|-S} [OPTIONS]
+
+Options:
+  -p, --port <port>  Port to serve
+  -d, --dir <dir>    Directory to start serving
+  -h, --help         Print help
 ```
