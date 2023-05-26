@@ -19,16 +19,26 @@
 
       ul {
         list-style: outside;
-        padding: 2rem;
-        margin: 5rem;
+        padding: 1rem;
+        padding-left: 2rem;
+        margin: 0.5rem;
+        transition: all 0.2s ease-in-out;
         /* Create a rounded border with shadow */
         border-radius: 10px;
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.368);
         background-color: white;
+        /* Reduce margin when on mobile */
+      }
+      @media (min-width: 768px) {
+        ul {
+          margin: 5rem;
+        }
       }
 
       li {
-        padding: 10px 0;
+        padding: 10px 0px;
+        margin: 0.5rem;
+        cursor: pointer;
       }
     </style>
     <script type="module">
@@ -44,6 +54,11 @@
         folders: [],
         files: [],
       };
+      // Render the UI for the first time
+      render(
+        html`<${App} data="${local_data}" status="${socket_connected}" />`,
+        document.body
+      );
       // Connect to websocket
       let url = new URL("/state", window.location.href);
       // http => ws
@@ -105,7 +120,7 @@
       }
 
       ws.onmessage = (ev) => {
-        let local_data = JSON.parse(ev.data);
+        local_data = JSON.parse(ev.data);
         // Append the blob incoming to the array
         render(
           html`<${App} data="${local_data}" status="${socket_connected}" />`,
@@ -121,9 +136,8 @@
           let url_r = new URL("/state", window.location.href);
           // http => ws
           // https => wss
-          url_r.protocol = url.protocol.replace("http", "ws");
-          console.log("Reloading state", url_r);
-          ws = new WebSocket(url.href);
+          url_r.protocol = url_r.protocol.replace("http", "ws");
+          ws = new WebSocket(url_r.href);
         }, 2000);
         render(
           html`<${App} data="${local_data}" status="${socket_connected}" />`,
@@ -136,9 +150,8 @@
           let url_r = new URL("/state", window.location.href);
           // http => ws
           // https => wss
-          url_r.protocol = url.protocol.replace("http", "ws");
-          console.log("Reloading state", url_r);
-          ws = new WebSocket(url.href);
+          url_r.protocol = url_r.protocol.replace("http", "ws");
+          ws = new WebSocket(url_r.href);
         }, 2000);
         render(
           html`<${App} data="${local_data}" status="${socket_connected}" />`,
@@ -150,9 +163,8 @@
           let url_r = new URL("/update_state", window.location.href);
           // http => ws
           // https => wss
-          url_r.protocol = url.protocol.replace("http", "ws");
-          console.log("Reloading update_state", url_r);
-          ws_updator = new WebSocket(url.href);
+          url_r.protocol = url_r.protocol.replace("http", "ws");
+          ws_updator = new WebSocket(url_r.href);
         }, 2000);
       };
       ws_updator.onerror = (ev) => {
@@ -161,8 +173,7 @@
           // http => ws
           // https => wss
           url_r.protocol = url.protocol.replace("http", "ws");
-          console.log("Reloading update_state", url_r);
-          ws_updator = new WebSocket(url.href);
+          ws_updator = new WebSocket(url_r.href);
         }, 2000);
       };
       window.onbeforeunload = function () {
