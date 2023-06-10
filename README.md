@@ -12,6 +12,7 @@ A collection of utils that you may need.
 
 - [x] Copy files
 - [x] Serve static files
+- [x] Download files from the internet. Like wget.
 
 ### copy - (respect the origin)
 
@@ -49,3 +50,19 @@ Options:
   -d, --dir <dir>    Directory to start serving
   -h, --help         Print help
 ```
+
+### download
+
+Download files from the internet.
+
+```
+download files from a remote server
+
+Usage: xyi.exe {download|--download|-D} [OPTIONS] --url <url>
+
+Options:
+  -u, --url <url>  URL to download from
+  -t, --to <to>    Where to download to
+  -h, --help       Print help
+```
+

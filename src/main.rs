@@ -90,6 +90,28 @@ async fn main() {
                         .num_args(1),
                 ),
         )
+        .subcommand(
+            Command::new("download")
+                .about("download files from a remote server")
+                .short_flag('D')
+                .long_flag("download")
+                .arg(
+                    Arg::new("url")
+                        .short('u')
+                        .long("url")
+                        .help("URL to download from")
+                        .required(true)
+                        .num_args(1),
+                )
+                .arg(
+                    Arg::new("to")
+                        .short('t')
+                        .long("to")
+                        .help("Where to download to")
+                        .required(false)
+                        .num_args(1),
+                ),
+        )
         .get_matches();
 
     // Set backtrace to short if not debug
@@ -124,6 +146,11 @@ async fn main() {
                 None => ".",
             };
             commands::serve::entry(port, starting_dir).await;
+        }
+        Some(("download", download_match)) => {
+            let url = download_match.get_one::<String>("url").unwrap();
+            let to = download_match.get_one::<String>("to");
+            commands::download::entry(url, to).await;
         }
         _ => {}
     }
