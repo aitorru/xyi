@@ -17,6 +17,7 @@ seahash = "4.1.0"
 serde = {version = "1.0.162", features = ["derive"] }
 serde_json = "1.0.96"
 sha2 = "0.10.6"
+teloxide = "0.12.2"
 tokio = {version = "1.27.0", features = ["full"]}
 tokio-util = {version="0.7.8", features = ["io"]}
 tracing-subscriber = "0.3.17"
