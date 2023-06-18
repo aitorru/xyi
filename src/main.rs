@@ -182,6 +182,12 @@ async fn main() {
             let to = download_match.get_one::<String>("to");
             commands::download::entry(url, to).await;
         }
+        Some(("telegram", telegram_match)) => {
+            let token = telegram_match.get_one::<String>("token").unwrap();
+            let chat = telegram_match.get_one::<String>("chat").unwrap();
+            let message = telegram_match.get_one::<String>("message").unwrap();
+            commands::telegram::entry(token, chat, message).await;
+        }
         _ => {}
     }
 }

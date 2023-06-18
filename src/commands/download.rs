@@ -11,16 +11,6 @@ pub async fn entry(url: &str, to: Option<&String>) {
             return;
         }
     };
-    // Get the file name from the headers
-    // let file_name = response
-    //     .headers()
-    //     .get("content-disposition")
-    //     .unwrap()
-    //     .to_str()
-    //     .unwrap()
-    //     .split("filename=")
-    //     .collect::<Vec<&str>>()[1]
-    //     .replace("\"", "");
 
     let file_name = match to {
         Some(to) => to.to_string(),
@@ -46,7 +36,6 @@ pub async fn entry(url: &str, to: Option<&String>) {
             }
         },
     };
-    println!("Downloading {} to {}...", url, file_name);
 
     // Save the file to the current directory
     let mut file = match tokio::fs::File::create(&file_name).await {
@@ -108,6 +97,5 @@ pub async fn entry(url: &str, to: Option<&String>) {
     }
 
     // Finish the progress bar
-    pb.finish();
-    println!("Downloaded {} to {}", url, file_name);
+    pb.finish_with_message(format!("Downloaded {} to {}", url, file_name));
 }
