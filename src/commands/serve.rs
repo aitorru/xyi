@@ -60,9 +60,8 @@ pub async fn entry(port: &str, starting_dir: &str) {
     tokio::task::spawn_blocking(move || loop {
         {
             scan_folder(&shared_state_clone);
-            println!("Scanning folder...")
         }
-        std::thread::sleep(std::time::Duration::from_millis(500));
+        std::thread::sleep(std::time::Duration::from_millis(200));
         // If 0 users are connected to the websocket server, pause the scan
         while tx.receiver_count() == 0 {
             std::thread::sleep(std::time::Duration::from_millis(100));
