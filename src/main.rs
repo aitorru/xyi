@@ -112,6 +112,36 @@ async fn main() {
                         .num_args(1),
                 ),
         )
+        .subcommand(
+            Command::new("telegram")
+                .about("send a message to a telegram chat")
+                .short_flag('T')
+                .long_flag("telegram")
+                .arg(
+                    Arg::new("token")
+                        .short('t')
+                        .long("token")
+                        .help("Telegram bot token")
+                        .required(true)
+                        .num_args(1),
+                )
+                .arg(
+                    Arg::new("chat")
+                        .short('c')
+                        .long("chat")
+                        .help("Telegram chat id")
+                        .required(true)
+                        .num_args(1),
+                )
+                .arg(
+                    Arg::new("message")
+                        .short('m')
+                        .long("message")
+                        .help("Message to send")
+                        .required(true)
+                        .num_args(1),
+                ),
+        )
         .get_matches();
 
     // Set backtrace to short if not debug
