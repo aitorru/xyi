@@ -13,6 +13,7 @@ A collection of utils that you may need.
 - [x] Copy files
 - [x] Serve static files
 - [x] Download files from the internet. Like wget.
+- [x] Send telegram messages
 
 ### copy - (respect the origin)
 
@@ -66,3 +67,18 @@ Options:
   -h, --help       Print help
 ```
 
+### telegram
+
+Send a message to a telegram chat.
+
+```
+send a message to a telegram chat
+
+Usage: xyi.exe {telegram|--telegram|-T} --token <token> --chat <chat> --message <message>
+
+Options:
+  -t, --token <token>      Telegram bot token
+  -c, --chat <chat>        Telegram chat id
+  -m, --message <message>  Message to send
+  -h, --help               Print help
+```
