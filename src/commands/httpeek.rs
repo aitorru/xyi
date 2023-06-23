@@ -1,6 +1,6 @@
 use tokio::time::Instant;
 
-pub async fn entry(url: &str, user_agent: &str) {
+pub async fn entry(url: &str, user_agent: &str, print_output: bool) {
     // Meassure the time it takes to make the request
     let start = Instant::now();
     // Create a client with a custom user agent
@@ -28,4 +28,10 @@ pub async fn entry(url: &str, user_agent: &str) {
             .is_some(),
         start.elapsed().as_millis()
     );
+    // If the user wants to print the output, print the headers and body
+    if print_output {
+        println!("=== Output ===");
+        println!("Headers:\n{:#?}\n", response.headers());
+        println!("Body:\n{}", response.text().await.unwrap());
+    }
 }

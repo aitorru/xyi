@@ -9,6 +9,7 @@ edition = "2021"
 axum = {version = "0.6.18", features = ["tracing", "ws", "macros"]}
 base64 = "0.21.0"
 clap = "4.2.4"
+ctrlc = "3.4.0"
 futures-util = "0.3.28"
 indicatif = "0.17.3"
 rayon = "1.7.0"

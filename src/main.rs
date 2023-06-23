@@ -162,6 +162,14 @@ async fn main() {
                         .help("User agent to use")
                         .required(false)
                         .num_args(1),
+                )
+                .arg(
+                    Arg::new("print")
+                        .short('o')
+                        .long("print")
+                        .help("Print output to stdout")
+                        .required(false)
+                        .num_args(0),
                 ),
         )
         .subcommand(
@@ -227,6 +235,7 @@ async fn main() {
         Some(("httpeek", httpeek_match)) => {
             let url = httpeek_match.get_one::<String>("url").unwrap();
             let user_agent = httpeek_match.get_one::<String>("agent");
+            let print_output = *httpeek_match.get_one::<bool>("print").unwrap();
             // If user agent not set just use xyi/v(program version)
             let user_agent = match user_agent {
                 Some(user_agent) => user_agent.to_owned(),
@@ -235,7 +244,7 @@ async fn main() {
                     format!("xyi/{}", version)
                 }
             };
-            commands::httpeek::entry(url, &user_agent).await;
+            commands::httpeek::entry(url, &user_agent, print_output).await;
         }
         Some(("wscat", wscat_match)) => {
             let url = wscat_match.get_one::<String>("url").unwrap();
