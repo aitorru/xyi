@@ -142,6 +142,50 @@ async fn main() {
                         .num_args(1),
                 ),
         )
+        .subcommand(
+            Command::new("httpeek")
+                .about("peek into http servers")
+                .short_flag('H')
+                .long_flag("httpeek")
+                .arg(
+                    Arg::new("url")
+                        .short('u')
+                        .long("url")
+                        .help("URL to peek into")
+                        .required(true)
+                        .num_args(1),
+                )
+                .arg(
+                    Arg::new("agent")
+                        .short('a')
+                        .long("agent")
+                        .help("User agent to use")
+                        .required(false)
+                        .num_args(1),
+                )
+                .arg(
+                    Arg::new("print")
+                        .short('o')
+                        .long("print")
+                        .help("Print output to stdout")
+                        .required(false)
+                        .num_args(0),
+                ),
+        )
+        .subcommand(
+            Command::new("wscat")
+                .about("Print to stdout the output of a websocket server")
+                .short_flag('W')
+                .long_flag("wscat")
+                .arg(
+                    Arg::new("url")
+                        .short('u')
+                        .long("url")
+                        .help("URL to connect to")
+                        .required(true)
+                        .num_args(1),
+                ),
+        )
         .get_matches();
 
     // Set backtrace to short if not debug
@@ -187,6 +231,24 @@ async fn main() {
             let chat = telegram_match.get_one::<String>("chat").unwrap();
             let message = telegram_match.get_one::<String>("message").unwrap();
             commands::telegram::entry(token, chat, message).await;
+        }
+        Some(("httpeek", httpeek_match)) => {
+            let url = httpeek_match.get_one::<String>("url").unwrap();
+            let user_agent = httpeek_match.get_one::<String>("agent");
+            let print_output = *httpeek_match.get_one::<bool>("print").unwrap();
+            // If user agent not set just use xyi/v(program version)
+            let user_agent = match user_agent {
+                Some(user_agent) => user_agent.to_owned(),
+                None => {
+                    let version = env!("CARGO_PKG_VERSION");
+                    format!("xyi/{}", version)
+                }
+            };
+            commands::httpeek::entry(url, &user_agent, print_output).await;
+        }
+        Some(("wscat", wscat_match)) => {
+            let url = wscat_match.get_one::<String>("url").unwrap();
+            commands::wscat::entry(url).await;
         }
         _ => {}
     }

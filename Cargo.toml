@@ -9,6 +9,7 @@ edition = "2021"
 axum = {version = "0.6.18", features = ["tracing", "ws", "macros"]}
 base64 = "0.21.0"
 clap = "4.2.4"
+ctrlc = "3.4.0"
 futures-util = "0.3.28"
 indicatif = "0.17.3"
 rayon = "1.7.0"
@@ -21,6 +22,15 @@ teloxide = "0.12.2"
 tokio = {version = "1.27.0", features = ["full"]}
 tokio-util = {version="0.7.8", features = ["io"]}
 tracing-subscriber = "0.3.17"
+tungstenite = {version = "0.19.0", features = ["rustls"]}
 
 [build-dependencies]
 reqwest = {version = "0.11.18", features=["blocking", "rustls-tls"], default-features = false}
+
+[registries.crates-io]
+protocol = "sparse"
+
+[profile.release]
+strip = true  # Automatically strip symbols from the binary.
+lto = true
+panic = "abort"
