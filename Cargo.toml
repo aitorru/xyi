@@ -21,6 +21,15 @@ teloxide = "0.12.2"
 tokio = {version = "1.27.0", features = ["full"]}
 tokio-util = {version="0.7.8", features = ["io"]}
 tracing-subscriber = "0.3.17"
+tungstenite = {version = "0.19.0", features = ["rustls"]}
 
 [build-dependencies]
 reqwest = {version = "0.11.18", features=["blocking", "rustls-tls"], default-features = false}
+
+[registries.crates-io]
+protocol = "sparse"
+
+[profile.release]
+strip = true  # Automatically strip symbols from the binary.
+lto = true
+panic = "abort"
