@@ -186,6 +186,7 @@ async fn main() {
                         .num_args(1),
                 ),
         )
+        // ws chat room
         .get_matches();
 
     // Set backtrace to short if not debug
