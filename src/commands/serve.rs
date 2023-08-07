@@ -1,4 +1,5 @@
-use axum::http::Response;
+use axum::body::Body;
+use axum::http::{HeaderMap, HeaderValue, Request, Response};
 use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::Router;
@@ -12,12 +13,15 @@ use axum::{
 };
 use base64::Engine;
 use serde::{Deserialize, Serialize};
+use std::fs::Metadata;
+use std::io::SeekFrom;
 use std::{
     path::PathBuf,
     println,
     sync::{Arc, Mutex},
 };
-use tokio_util::io::ReaderStream;
+use tokio::io::{AsyncReadExt, AsyncSeekExt};
+use tower::ServiceExt;
 #[derive(Clone)]
 struct AppState {
     broadcast_sender: tokio::sync::broadcast::Sender<u8>,
@@ -182,7 +186,11 @@ async fn update_state(app_state: AppState, mut ws: WebSocket) {
     }
 }
 
-async fn download_file(query: Query<DownloadQuery>) -> impl IntoResponse {
+async fn download_file(
+    query: Query<DownloadQuery>,
+    headers: HeaderMap,
+    request: Request<Body>,
+) -> impl IntoResponse {
     // `File` implements `AsyncRead`
     let path = match base64::engine::general_purpose::STANDARD.decode(&query.path) {
         Ok(path) => match String::from_utf8(path) {
@@ -201,32 +209,15 @@ async fn download_file(query: Query<DownloadQuery>) -> impl IntoResponse {
             ))
         }
     };
-    let file = match tokio::fs::File::open(&path).await {
-        Ok(file) => file,
-        Err(err) => return Err((StatusCode::NOT_FOUND, format!("File not found: {}", err))),
-    };
-    let content_size = file.metadata().await.unwrap().len().to_string();
-    // convert the `AsyncRead` into a `Stream`
-    let stream = ReaderStream::new(file);
-    // convert the `Stream` into an `axum::body::HttpBody`
-    let body = StreamBody::new(stream);
 
-    let headers = [
-        (
-            header::CONTENT_TYPE,
-            "application/octet-stream; charset=utf-8",
-        ),
-        (
-            header::CONTENT_DISPOSITION,
-            &format!(
-                "attachment; filename=\"{}\"",
-                PathBuf::from(&path).file_name().unwrap().to_str().unwrap()
-            ),
-        ),
-        (header::CONTENT_LENGTH, &content_size),
-    ];
+    // Check if the file exists
+    let path = std::path::Path::new(&path);
+    if !path.exists() {
+        return Err((StatusCode::NOT_FOUND, "File not found".to_owned()));
+    }
 
-    Ok((headers, body).into_response())
+    let serve_file = tower_http::services::fs::ServeFile::new(&path);
+    Ok(serve_file.oneshot(request).await)
 }
 
 async fn download_preact_mjs() -> impl IntoResponse {

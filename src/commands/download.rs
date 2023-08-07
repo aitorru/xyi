@@ -31,7 +31,6 @@ pub async fn entry(url: &str, to: Option<&String>) {
                     url.to_string()
                 };
                 let url_split = url.split("/").collect::<Vec<&str>>();
-                println!("{:?}", url_split);
                 url_split[url_split.len() - 1].to_string()
             }
         },
