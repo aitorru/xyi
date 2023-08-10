@@ -1,26 +1,21 @@
 use axum::body::Body;
-use axum::http::{HeaderMap, HeaderValue, Request, Response};
+use axum::http::{HeaderMap, Request, Response};
 use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::Router;
 use axum::{
-    body::StreamBody,
     extract::{
         ws::{Message, WebSocket},
         Query, State, WebSocketUpgrade,
     },
-    http::{header, StatusCode},
+    http::StatusCode,
 };
 use base64::Engine;
 use serde::{Deserialize, Serialize};
-use std::fs::Metadata;
-use std::io::SeekFrom;
 use std::{
-    path::PathBuf,
     println,
     sync::{Arc, Mutex},
 };
-use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use tower::ServiceExt;
 #[derive(Clone)]
 struct AppState {
