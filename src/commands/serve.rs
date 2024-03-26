@@ -183,7 +183,7 @@ async fn update_state(app_state: AppState, mut ws: WebSocket) {
 
 async fn download_file(
     query: Query<DownloadQuery>,
-    headers: HeaderMap,
+    _: HeaderMap,
     request: Request<Body>,
 ) -> impl IntoResponse {
     // `File` implements `AsyncRead`

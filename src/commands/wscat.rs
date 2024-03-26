@@ -40,7 +40,7 @@ pub async fn entry(url: &str) {
                 return;
             }
 
-            let message = match tx.read_message() {
+            let message = match tx.read() {
                 Ok(message) => message,
                 Err(error) => {
                     // TODO: Handle error in tui
