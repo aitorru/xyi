@@ -66,6 +66,14 @@ async fn main() {
                         .help("Check the hash of the local file and the remote file before copying")
                         .required(false)
                         .num_args(0),
+                )
+                .arg(
+                    Arg::new("log")
+                        .short('l')
+                        .long("log")
+                        .help("Destination of logs")
+                        .required(false)
+                        .num_args(1),
                 ),
         )
         .subcommand(
@@ -208,8 +216,30 @@ async fn main() {
                 Some(threads) => threads,
                 None => "2",
             };
+            let logs = copy_match.get_one::<String>("log");
+            let logs = match logs {
+                Some(logs) => {
+                    // Check if the logs path exists and if it is a directory
+                    let logs_path = std::path::PathBuf::from(logs);
+                    if logs_path.exists() && logs_path.is_dir() {
+                        // Add xyi-copy-[date].log to the logs path
+                        let date = chrono::Local::now().format("%Y-%m-%d-%H-%M-%S");
+                        let log_file = logs_path.join(format!("xyi-copy-{}.log", date));
+                        // Create the file
+                        let _ = std::fs::File::create(&log_file);
+                        Some(log_file.to_str().unwrap().to_string())
+                    } else if logs_path.exists() && logs_path.is_file() {
+                        // If the path does not exist or is not a directory just use the current directory
+                        Some(logs_path.to_str().unwrap().to_string())
+                    } else {
+                        println!("The logs path does not exist or is not a directory");
+                        None
+                    }
+                },
+                None => None,
+            };
             env::set_var("RAYON_NUM_THREADS", threads.to_string());
-            commands::copy::entry(from.to_string(), to.to_string(), force, skip, hash_check).await;
+            commands::copy::entry(from.to_string(), to.to_string(), force, skip, hash_check, logs).await;
         }
         Some(("serve", serve_match)) => {
             let port = match serve_match.get_one::<String>("port") {

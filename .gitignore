@@ -1,3 +1,15 @@
 /target
 src/assets/serve/htm.mjs
 src/assets/serve/preact.mjs
+test/
+
+
+# Devenv
+.devenv*
+devenv.local.nix
+
+# direnv
+.direnv
+
+# pre-commit
+.pre-commit-config.yaml

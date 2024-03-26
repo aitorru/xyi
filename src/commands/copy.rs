@@ -1,5 +1,5 @@
 use std::{
-    io::{BufRead, BufReader, BufWriter, Read, Write},
+    fs::{File, OpenOptions}, io::{BufRead, BufReader, BufWriter, Read, Write}, sync::Mutex
 };
 
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
@@ -22,7 +22,7 @@ struct FoldersSource {
     xyi.exe copy -f <from> -t <to>
     ```
 */
-pub async fn entry(from: String, to: String, force: bool, skip: bool, hash_check: bool) {
+pub async fn entry(from: String, to: String, force: bool, skip: bool, hash_check: bool, log_path: Option<String>) {
     // Create a new group of progress bars
     let bar = MultiProgress::new();
     let style_scanning = ProgressStyle::with_template("[{elapsed}] {msg:40} [{eta}]").unwrap();
@@ -42,6 +42,20 @@ pub async fn entry(from: String, to: String, force: bool, skip: bool, hash_check
     let transfering_bar = bar.add(ProgressBar::new(files.len() as u64));
     transfering_bar.set_style(style_files_transfering.clone());
 
+    // Create a log writer
+    let log_writer = match log_path {
+        Some(path) => {
+            let file = OpenOptions::new()
+                .write(true)
+                .append(true)
+                .open(path)
+                .unwrap();
+            Some(Mutex::new(file))
+        }
+        None => None,
+    };
+
+
     copy_files(
         files,
         &bar,
@@ -52,6 +66,7 @@ pub async fn entry(from: String, to: String, force: bool, skip: bool, hash_check
         force,
         skip,
         hash_check,
+        log_writer
     )
     .await;
 }
@@ -112,6 +127,7 @@ async fn copy_files(
     force: bool,
     skip: bool,
     hash_check: bool,
+    log_writer: Option<Mutex<File>>,
 ) {
     transfering_bar_global.set_message("Copying files");
     files.par_iter().for_each(|file| {
@@ -233,6 +249,14 @@ async fn copy_files(
         // individual_progress.finish_with_message(format!("Done copying file {}", name));
         individual_progress.finish_and_clear();
         transfering_bar_global.inc(1);
+        // Log the file
+        if let Some(log_writer) = log_writer.as_ref() {
+            let mut log_writer = log_writer.lock().unwrap();
+            let date = chrono::Local::now().format("%Y-%m-%d-%H-%M-%S");
+            log_writer
+                .write_all(format!("- Copied {} to {} - at {}\n", from_path.to_str().unwrap(), to_path.to_str().unwrap(), date).as_bytes())
+                .unwrap();
+        }
     });
     transfering_bar_global.finish_with_message("Done copying files");
 }
