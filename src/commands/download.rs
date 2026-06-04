@@ -14,25 +14,14 @@ pub async fn entry(url: &str, to: Option<&String>) {
 
     let file_name = match to {
         Some(to) => to.to_string(),
-        None => match response.headers().get("content-disposition") {
-            Some(content_disposition) => content_disposition
-                .to_str()
-                .unwrap()
-                .split("filename=")
-                .collect::<Vec<&str>>()[1]
-                .replace("\"", ""),
-            None => {
-                // If the url ends with a slash, remove it
-                let url = if url.ends_with("/") {
-                    let mut url = url.to_string();
-                    url.pop().unwrap();
-                    url
-                } else {
-                    url.to_string()
-                };
-                let url_split = url.split("/").collect::<Vec<&str>>();
-                url_split[url_split.len() - 1].to_string()
-            }
+        None => match response
+            .headers()
+            .get("content-disposition")
+            .and_then(|value| value.to_str().ok())
+            .and_then(file_name_from_content_disposition)
+        {
+            Some(name) => name,
+            None => file_name_from_url(url),
         },
     };
 
@@ -97,4 +86,71 @@ pub async fn entry(url: &str, to: Option<&String>) {
 
     // Finish the progress bar
     pb.finish_with_message(format!("Downloaded {} to {}", url, file_name));
+}
+
+/// Derive a file name from the last path segment of a URL, ignoring a single
+/// trailing slash.
+fn file_name_from_url(url: &str) -> String {
+    let url = url.strip_suffix('/').unwrap_or(url);
+    match url.rsplit('/').next() {
+        Some(name) if !name.is_empty() => name.to_string(),
+        _ => url.to_string(),
+    }
+}
+
+/// Extract the file name from a `Content-Disposition` header value, if it
+/// contains a `filename=` parameter.
+fn file_name_from_content_disposition(value: &str) -> Option<String> {
+    value
+        .split("filename=")
+        .nth(1)
+        .map(|name| name.trim().replace('\"', ""))
+        .filter(|name| !name.is_empty())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn file_name_from_plain_url() {
+        assert_eq!(
+            file_name_from_url("https://example.com/file.zip"),
+            "file.zip"
+        );
+    }
+
+    #[test]
+    fn file_name_from_url_with_trailing_slash() {
+        assert_eq!(
+            file_name_from_url("https://example.com/path/archive.tar.gz/"),
+            "archive.tar.gz"
+        );
+    }
+
+    #[test]
+    fn file_name_from_url_without_path() {
+        assert_eq!(file_name_from_url("https://example.com"), "example.com");
+    }
+
+    #[test]
+    fn content_disposition_with_filename() {
+        assert_eq!(
+            file_name_from_content_disposition("attachment; filename=\"report.pdf\""),
+            Some("report.pdf".to_string())
+        );
+    }
+
+    #[test]
+    fn content_disposition_without_quotes() {
+        assert_eq!(
+            file_name_from_content_disposition("attachment; filename=report.pdf"),
+            Some("report.pdf".to_string())
+        );
+    }
+
+    #[test]
+    fn content_disposition_without_filename() {
+        assert_eq!(file_name_from_content_disposition("inline"), None);
+    }
 }
