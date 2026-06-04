@@ -143,17 +143,8 @@ async fn copy_files(
         let mut to_path = to_path.clone();
         let name = file.name.clone();
         let path = from_path.clone();
-        // If the static_path ends with a / remove it
-        let starting_path = if starting_path.to_str().unwrap().ends_with("/")
-            || starting_path.to_str().unwrap().ends_with("\\")
-        {
-            let mut starting_path = starting_path.to_str().unwrap().to_owned();
-            // Pop returns the last character, so we need to return the whole starting path without the last character
-            starting_path.pop().unwrap();
-            starting_path
-        } else {
-            starting_path.to_str().unwrap().to_string()
-        };
+        // If the starting_path ends with a separator remove it
+        let starting_path = strip_trailing_separator(starting_path.to_str().unwrap()).to_string();
         // Split the to_path and make sure all the folders exist, if not create them
         for folder in from_path
             .parent()
@@ -250,7 +241,7 @@ async fn copy_files(
                     break;
                 }
                 bytes_read = buffer.len();
-                writer_buffer.write(buffer).unwrap();
+                writer_buffer.write_all(buffer).unwrap();
             }
             writer_buffer.flush().unwrap();
             individual_progress.inc(bytes_read as u64);
@@ -277,4 +268,29 @@ async fn copy_files(
         }
     });
     transfering_bar_global.finish_with_message("Done copying files");
+}
+
+/// Remove a single trailing path separator (`/` or `\`) from `path`, if present.
+fn strip_trailing_separator(path: &str) -> &str {
+    path.strip_suffix(['/', '\\']).unwrap_or(path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn strips_unix_separator() {
+        assert_eq!(strip_trailing_separator("/home/user/"), "/home/user");
+    }
+
+    #[test]
+    fn strips_windows_separator() {
+        assert_eq!(strip_trailing_separator("C:\\files\\"), "C:\\files");
+    }
+
+    #[test]
+    fn leaves_path_without_separator_untouched() {
+        assert_eq!(strip_trailing_separator("/home/user"), "/home/user");
+    }
 }
