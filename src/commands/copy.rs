@@ -1,5 +1,7 @@
 use std::{
-    fs::{File, OpenOptions}, io::{BufRead, BufReader, BufWriter, Read, Write}, sync::Mutex
+    fs::{File, OpenOptions},
+    io::{BufRead, BufReader, BufWriter, Read, Write},
+    sync::Mutex,
 };
 
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
@@ -22,7 +24,14 @@ struct FoldersSource {
     xyi.exe copy -f <from> -t <to>
     ```
 */
-pub async fn entry(from: String, to: String, force: bool, skip: bool, hash_check: bool, log_path: Option<String>) {
+pub async fn entry(
+    from: String,
+    to: String,
+    force: bool,
+    skip: bool,
+    hash_check: bool,
+    log_path: Option<String>,
+) {
     // Create a new group of progress bars
     let bar = MultiProgress::new();
     let style_scanning = ProgressStyle::with_template("[{elapsed}] {msg:40} [{eta}]").unwrap();
@@ -55,7 +64,6 @@ pub async fn entry(from: String, to: String, force: bool, skip: bool, hash_check
         None => None,
     };
 
-
     copy_files(
         files,
         &bar,
@@ -66,7 +74,7 @@ pub async fn entry(from: String, to: String, force: bool, skip: bool, hash_check
         force,
         skip,
         hash_check,
-        log_writer
+        log_writer,
     )
     .await;
 }
@@ -177,7 +185,9 @@ async fn copy_files(
         individual_progress.set_message(format!("Checking {}", name));
         // If the to_path is a file, get the hash and compare them
         if to_path.is_file() && !force {
-            if std::fs::metadata(&to_path).unwrap().len() == std::fs::metadata(from_path.clone()).unwrap().len() && !hash_check
+            if std::fs::metadata(&to_path).unwrap().len()
+                == std::fs::metadata(from_path.clone()).unwrap().len()
+                && !hash_check
                 && !hash_check
             {
                 // individual_progress.finish_with_message(format!("File {} already exists", name));
@@ -186,7 +196,7 @@ async fn copy_files(
                 return;
             } else if !hash_check {
                 individual_progress.finish_and_clear();
-                return; 
+                return;
             }
             if skip {
                 // individual_progress.finish_with_message(format!("File {} already exists", name));
@@ -254,7 +264,15 @@ async fn copy_files(
             let mut log_writer = log_writer.lock().unwrap();
             let date = chrono::Local::now().format("%Y-%m-%d-%H-%M-%S");
             log_writer
-                .write_all(format!("- Copied {} to {} - at {}\n", from_path.to_str().unwrap(), to_path.to_str().unwrap(), date).as_bytes())
+                .write_all(
+                    format!(
+                        "- Copied {} to {} - at {}\n",
+                        from_path.to_str().unwrap(),
+                        to_path.to_str().unwrap(),
+                        date
+                    )
+                    .as_bytes(),
+                )
                 .unwrap();
         }
     });

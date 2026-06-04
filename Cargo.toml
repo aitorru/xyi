@@ -1,7 +1,11 @@
 [package]
 name = "xyi"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
+description = "A collection of cross-platform coreutils you may need"
+authors = ["aitorru"]
+license = "MIT"
+repository = "https://github.com/aitorru/xyi"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

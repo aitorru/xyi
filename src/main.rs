@@ -9,7 +9,7 @@ async fn main() {
     env::set_var("RUST_BACKTRACE", "1");
     let command_match = Command::new("xyi")
         .about("coreutils collection")
-        .version("0.1.0")
+        .version(env!("CARGO_PKG_VERSION"))
         .subcommand_required(true)
         .arg_required_else_help(true)
         .author("aitorru")
@@ -235,11 +235,19 @@ async fn main() {
                         println!("The logs path does not exist or is not a directory");
                         None
                     }
-                },
+                }
                 None => None,
             };
             env::set_var("RAYON_NUM_THREADS", threads.to_string());
-            commands::copy::entry(from.to_string(), to.to_string(), force, skip, hash_check, logs).await;
+            commands::copy::entry(
+                from.to_string(),
+                to.to_string(),
+                force,
+                skip,
+                hash_check,
+                logs,
+            )
+            .await;
         }
         Some(("serve", serve_match)) => {
             let port = match serve_match.get_one::<String>("port") {
