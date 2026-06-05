@@ -68,6 +68,14 @@ async fn main() {
                         .num_args(0),
                 )
                 .arg(
+                    Arg::new("continue-on-error")
+                        .short('c')
+                        .long("continue-on-error")
+                        .help("Be permissive with read/write failures: skip failing files and report them at the end instead of aborting the whole copy")
+                        .required(false)
+                        .num_args(0),
+                )
+                .arg(
                     Arg::new("log")
                         .short('l')
                         .long("log")
@@ -211,6 +219,7 @@ async fn main() {
             let force = *copy_match.get_one::<bool>("force").unwrap();
             let skip = *copy_match.get_one::<bool>("skip").unwrap();
             let hash_check = *copy_match.get_one::<bool>("hash").unwrap();
+            let continue_on_error = *copy_match.get_one::<bool>("continue-on-error").unwrap();
             let threads = copy_match.get_one::<String>("threads");
             let threads = match threads {
                 Some(threads) => threads,
@@ -245,6 +254,7 @@ async fn main() {
                 force,
                 skip,
                 hash_check,
+                continue_on_error,
                 logs,
             )
             .await;
