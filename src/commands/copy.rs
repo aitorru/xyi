@@ -70,7 +70,10 @@ pub async fn entry(
     // and persist the result for the next run. The cache is trusted as-is and is
     // never revalidated against the source, so files added or removed after it
     // was written will not be picked up until the index file is deleted.
-    let files = match index_path.as_ref().and_then(|path| load_index(path, &folder_bar)) {
+    let files = match index_path
+        .as_ref()
+        .and_then(|path| load_index(path, &folder_bar))
+    {
         Some(files) => files,
         None => {
             let files = match scan_for_files_to_copy(from_path.clone(), &folder_bar).await {
