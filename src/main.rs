@@ -82,6 +82,14 @@ async fn main() {
                         .help("Destination of logs")
                         .required(false)
                         .num_args(1),
+                )
+                .arg(
+                    Arg::new("index")
+                        .short('i')
+                        .long("index")
+                        .help("Path to an index cache file: reused as-is if it exists (skips the source scan), otherwise the scan result is written there for next time")
+                        .required(false)
+                        .num_args(1),
                 ),
         )
         .subcommand(
@@ -247,6 +255,9 @@ async fn main() {
                 }
                 None => None,
             };
+            let index = copy_match
+                .get_one::<String>("index")
+                .map(|index| index.to_string());
             env::set_var("RAYON_NUM_THREADS", threads.to_string());
             commands::copy::entry(
                 from.to_string(),
@@ -256,6 +267,7 @@ async fn main() {
                 hash_check,
                 continue_on_error,
                 logs,
+                index,
             )
             .await;
         }

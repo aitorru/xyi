@@ -8,6 +8,7 @@ use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 use seahash::hash;
 
+#[derive(serde::Serialize, serde::Deserialize)]
 struct FilesSource {
     path: std::path::PathBuf,
     name: String,
@@ -50,6 +51,7 @@ pub async fn entry(
     hash_check: bool,
     continue_on_error: bool,
     log_path: Option<String>,
+    index_path: Option<String>,
 ) {
     // Create a new group of progress bars
     let bar = MultiProgress::new();
@@ -64,22 +66,53 @@ pub async fn entry(
 
     let from_path = std::path::PathBuf::from(from);
     let to_path = std::path::PathBuf::from(to);
-    let files = scan_for_files_to_copy(from_path.clone(), &folder_bar).await;
+    // Reuse a cached index when one is available, otherwise scan the source tree
+    // and persist the result for the next run. The cache is trusted as-is and is
+    // never revalidated against the source, so files added or removed after it
+    // was written will not be picked up until the index file is deleted.
+    let files = match index_path
+        .as_ref()
+        .and_then(|path| load_index(path, &folder_bar))
+    {
+        Some(files) => files,
+        None => {
+            let files = match scan_for_files_to_copy(from_path.clone(), &folder_bar).await {
+                Ok(files) => files,
+                Err(error) => {
+                    folder_bar.abandon_with_message("Scan aborted due to an error");
+                    eprintln!(
+                        "\nScan aborted: failed to read '{}': {}",
+                        error.path.display(),
+                        error.message
+                    );
+                    std::process::exit(1);
+                }
+            };
+            if let Some(path) = index_path.as_ref() {
+                save_index(&files, path);
+            }
+            files
+        }
+    };
 
     // Create a new progress bar for copying the files
     let transfering_bar = bar.add(ProgressBar::new(files.len() as u64));
     transfering_bar.set_style(style_files_transfering.clone());
 
-    // Create a log writer
+    // Create a log writer. Logging is a convenience, not a requirement, so a
+    // failure to open the log file warns the user and carries on instead of
+    // aborting the whole copy.
     let log_writer = match log_path {
-        Some(path) => {
-            let file = OpenOptions::new()
-                .write(true)
-                .append(true)
-                .open(path)
-                .unwrap();
-            Some(Mutex::new(file))
-        }
+        Some(path) => match OpenOptions::new().write(true).append(true).open(&path) {
+            Ok(file) => Some(Mutex::new(file)),
+            Err(error) => {
+                eprintln!(
+                    "Warning: could not open log file '{}': {}. Continuing without logging.",
+                    path, error
+                );
+                None
+            }
+        },
         None => None,
     };
 
@@ -99,17 +132,25 @@ pub async fn entry(
     .await;
 }
 
-async fn scan_for_files_to_copy(
-    entry_path: std::path::PathBuf,
+/// Read a single directory into its files and sub-folders, turning any I/O
+/// problem into a [`CopyError`] with a human readable message instead of
+/// panicking. File names are decoded lossily so non-UTF-8 names (common on
+/// Windows) never abort the scan.
+fn read_dir_into(
+    dir: &std::path::Path,
+    files: &mut Vec<FilesSource>,
+    folders: &mut Vec<FoldersSource>,
     scanning_bar: &ProgressBar,
-) -> Vec<FilesSource> {
-    let mut files: Vec<FilesSource> = vec![];
-    let mut folders: Vec<FoldersSource> = vec![];
-    // Scan all the files and folders in the current directory
-    for entry in std::fs::read_dir(entry_path).unwrap() {
-        let entry = entry.unwrap();
+) -> Result<(), CopyError> {
+    let entries = std::fs::read_dir(dir).map_err(|error| {
+        CopyError::new(dir, format!("could not read source directory: {}", error))
+    })?;
+    for entry in entries {
+        let entry = entry.map_err(|error| {
+            CopyError::new(dir, format!("could not read a directory entry: {}", error))
+        })?;
         let path = entry.path();
-        let name = entry.file_name().into_string().unwrap();
+        let name = entry.file_name().to_string_lossy().into_owned();
         scanning_bar.set_message(format!("Reading {}", name));
         if path.is_dir() {
             folders.push(FoldersSource { path });
@@ -117,23 +158,32 @@ async fn scan_for_files_to_copy(
             files.push(FilesSource { path, name });
         }
     }
+    Ok(())
+}
+
+/// Recursively scan `entry_path`, returning the list of files to copy. Any
+/// directory that cannot be read aborts the scan with a [`CopyError`] so the
+/// caller can report a clear message instead of crashing with a backtrace.
+async fn scan_for_files_to_copy(
+    entry_path: std::path::PathBuf,
+    scanning_bar: &ProgressBar,
+) -> Result<Vec<FilesSource>, CopyError> {
+    let mut files: Vec<FilesSource> = vec![];
+    let mut folders: Vec<FoldersSource> = vec![];
+    // Scan all the files and folders in the current directory
+    read_dir_into(&entry_path, &mut files, &mut folders, scanning_bar)?;
     loop {
-        if folders.len() == 0 {
+        if folders.is_empty() {
             break;
         }
         let mut folders_to_travel: Vec<FoldersSource> = vec![];
         for folder in folders.clone() {
-            for entry in std::fs::read_dir(&folder.path).unwrap() {
-                let entry = entry.unwrap();
-                let path = entry.path();
-                let name = entry.file_name().into_string().unwrap();
-                scanning_bar.set_message(format!("Reading {}", name));
-                if path.is_dir() {
-                    folders_to_travel.push(FoldersSource { path });
-                } else {
-                    files.push(FilesSource { path, name });
-                }
-            }
+            read_dir_into(
+                &folder.path,
+                &mut files,
+                &mut folders_to_travel,
+                scanning_bar,
+            )?;
         }
         // Empty the folders vector
         folders.clear();
@@ -142,7 +192,71 @@ async fn scan_for_files_to_copy(
     }
     // End the progress bar
     scanning_bar.finish_with_message(format!("Done reading {} files", files.len()));
-    files
+    Ok(files)
+}
+
+/// Load a previously persisted copy index from `path`. Returns `None` when the
+/// index cannot be used so the caller can fall back to a fresh scan. A missing
+/// file is the normal "first run" case and is silent; anything else (an
+/// unreadable or corrupt cache) is reported to the user as a warning before
+/// falling back. The cache is trusted as-is and is intentionally not
+/// revalidated against the source tree.
+fn load_index(path: &str, scanning_bar: &ProgressBar) -> Option<Vec<FilesSource>> {
+    if !std::path::Path::new(path).exists() {
+        // No cache yet: the scan will create it. Nothing to warn about.
+        return None;
+    }
+    let file = match File::open(path) {
+        Ok(file) => file,
+        Err(error) => {
+            // Use eprintln! rather than the progress bar so the warning still
+            // reaches the user when output is piped or redirected to a file.
+            eprintln!(
+                "Warning: could not open index cache '{}': {}. Scanning the source instead.",
+                path, error
+            );
+            return None;
+        }
+    };
+    let reader = BufReader::new(file);
+    match serde_json::from_reader::<_, Vec<FilesSource>>(reader) {
+        Ok(files) => {
+            scanning_bar
+                .finish_with_message(format!("Loaded {} files from index cache", files.len()));
+            Some(files)
+        }
+        Err(error) => {
+            eprintln!(
+                "Warning: index cache '{}' is not valid ({}). Scanning the source instead.",
+                path, error
+            );
+            None
+        }
+    }
+}
+
+/// Persist the scanned copy index to `path` so subsequent runs can skip the
+/// recursive directory scan via `--index`. A failure to write the cache is
+/// non-fatal: the copy has all the information it needs in memory already, so we
+/// just warn the user that the cache was not saved and carry on.
+fn save_index(files: &[FilesSource], path: &str) {
+    let file = match File::create(path) {
+        Ok(file) => file,
+        Err(error) => {
+            eprintln!(
+                "Warning: could not create index cache '{}': {}. The index was not saved.",
+                path, error
+            );
+            return;
+        }
+    };
+    let writer = BufWriter::new(file);
+    if let Err(error) = serde_json::to_writer(writer, files) {
+        eprintln!(
+            "Warning: could not write index cache '{}': {}. The index was not saved.",
+            path, error
+        );
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -250,18 +364,17 @@ fn copy_single_file(
     let mut to_path = to_path.to_path_buf();
     let name = file.name.clone();
     let path = from_path.clone();
-    // If the starting_path ends with a separator remove it
-    let starting_path = strip_trailing_separator(starting_path.to_str().unwrap()).to_string();
-    // Split the to_path and make sure all the folders exist, if not create them
-    for folder in from_path
+    // Mirror the file's directory structure under the destination. We compute
+    // the file's parent directory relative to the source root and walk its
+    // components, creating each level as needed. Working on path components
+    // (instead of splitting a string on a hard-coded separator) keeps this
+    // correct on both Windows (`\`) and Unix (`/`) and avoids panicking on
+    // non-UTF-8 paths.
+    let parent = from_path
         .parent()
-        .unwrap()
-        .to_str()
-        .unwrap()
-        .replace(&starting_path, "")
-        .split('\\')
-        .collect::<Vec<&str>>()
-    {
+        .unwrap_or_else(|| std::path::Path::new(""));
+    let relative = relative_dir(parent, starting_path);
+    for folder in relative.components() {
         to_path = to_path.join(folder);
         if !to_path.exists() {
             // Creating an already existing directory races harmlessly between
@@ -393,8 +506,8 @@ fn copy_single_file(
             let _ = log_writer.write_all(
                 format!(
                     "- Copied {} to {} - at {}\n",
-                    from_path.to_str().unwrap(),
-                    to_path.to_str().unwrap(),
+                    from_path.display(),
+                    to_path.display(),
                     date
                 )
                 .as_bytes(),
@@ -407,27 +520,46 @@ fn copy_single_file(
     outcome
 }
 
-/// Remove a single trailing path separator (`/` or `\`) from `path`, if present.
-fn strip_trailing_separator(path: &str) -> &str {
-    path.strip_suffix(['/', '\\']).unwrap_or(path)
+/// Compute `parent` relative to the source `root` so the directory structure
+/// can be recreated under the destination. When `parent` does not live under
+/// `root` (for instance when an index built from a different source is reused)
+/// the parent is returned unchanged. Comparison is done on whole path
+/// components, so a trailing separator on `root` is irrelevant and both Windows
+/// and Unix separators are handled natively.
+fn relative_dir<'a>(parent: &'a std::path::Path, root: &std::path::Path) -> &'a std::path::Path {
+    parent.strip_prefix(root).unwrap_or(parent)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::{Path, PathBuf};
 
     #[test]
-    fn strips_unix_separator() {
-        assert_eq!(strip_trailing_separator("/home/user/"), "/home/user");
+    fn relative_dir_strips_the_source_root() {
+        let parent = PathBuf::from("/data/src/a/b");
+        let root = Path::new("/data/src");
+        assert_eq!(relative_dir(&parent, root), Path::new("a/b"));
     }
 
     #[test]
-    fn strips_windows_separator() {
-        assert_eq!(strip_trailing_separator("C:\\files\\"), "C:\\files");
+    fn relative_dir_ignores_trailing_separator_on_root() {
+        let parent = PathBuf::from("/data/src/a");
+        let root = Path::new("/data/src/");
+        assert_eq!(relative_dir(&parent, root), Path::new("a"));
     }
 
     #[test]
-    fn leaves_path_without_separator_untouched() {
-        assert_eq!(strip_trailing_separator("/home/user"), "/home/user");
+    fn relative_dir_is_empty_for_files_in_the_root() {
+        let parent = PathBuf::from("/data/src");
+        let root = Path::new("/data/src");
+        assert_eq!(relative_dir(&parent, root), Path::new(""));
+    }
+
+    #[test]
+    fn relative_dir_falls_back_when_not_under_root() {
+        let parent = PathBuf::from("/somewhere/else");
+        let root = Path::new("/data/src");
+        assert_eq!(relative_dir(&parent, root), Path::new("/somewhere/else"));
     }
 }
