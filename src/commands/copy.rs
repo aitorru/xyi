@@ -8,6 +8,7 @@ use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 use seahash::hash;
 
+#[derive(serde::Serialize, serde::Deserialize)]
 struct FilesSource {
     path: std::path::PathBuf,
     name: String,
@@ -50,6 +51,7 @@ pub async fn entry(
     hash_check: bool,
     continue_on_error: bool,
     log_path: Option<String>,
+    index_path: Option<String>,
 ) {
     // Create a new group of progress bars
     let bar = MultiProgress::new();
@@ -64,7 +66,20 @@ pub async fn entry(
 
     let from_path = std::path::PathBuf::from(from);
     let to_path = std::path::PathBuf::from(to);
-    let files = scan_for_files_to_copy(from_path.clone(), &folder_bar).await;
+    // Reuse a cached index when one is available, otherwise scan the source tree
+    // and persist the result for the next run. The cache is trusted as-is and is
+    // never revalidated against the source, so files added or removed after it
+    // was written will not be picked up until the index file is deleted.
+    let files = match index_path.as_ref().and_then(|path| load_index(path, &folder_bar)) {
+        Some(files) => files,
+        None => {
+            let files = scan_for_files_to_copy(from_path.clone(), &folder_bar).await;
+            if let Some(path) = index_path.as_ref() {
+                save_index(&files, path);
+            }
+            files
+        }
+    };
 
     // Create a new progress bar for copying the files
     let transfering_bar = bar.add(ProgressBar::new(files.len() as u64));
@@ -143,6 +158,30 @@ async fn scan_for_files_to_copy(
     // End the progress bar
     scanning_bar.finish_with_message(format!("Done reading {} files", files.len()));
     files
+}
+
+/// Load a previously persisted copy index from `path`. Returns `None` when the
+/// file does not exist or cannot be parsed so the caller can fall back to a
+/// fresh scan. The cache is trusted as-is and is intentionally not revalidated
+/// against the source tree.
+fn load_index(path: &str, scanning_bar: &ProgressBar) -> Option<Vec<FilesSource>> {
+    let file = File::open(path).ok()?;
+    let reader = BufReader::new(file);
+    let files: Vec<FilesSource> = serde_json::from_reader(reader).ok()?;
+    scanning_bar.finish_with_message(format!("Loaded {} files from index cache", files.len()));
+    Some(files)
+}
+
+/// Persist the scanned copy index to `path` so subsequent runs can skip the
+/// recursive directory scan via `--index`. A failure to write the cache is
+/// non-fatal: the copy has all the information it needs in memory already.
+fn save_index(files: &[FilesSource], path: &str) {
+    let file = match File::create(path) {
+        Ok(file) => file,
+        Err(_) => return,
+    };
+    let writer = BufWriter::new(file);
+    let _ = serde_json::to_writer(writer, files);
 }
 
 #[allow(clippy::too_many_arguments)]
