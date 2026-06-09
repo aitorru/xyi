@@ -41,9 +41,22 @@ Usage: xyi.exe {copy|--copy|-C} [OPTIONS] --from <from> --to <to>
     -T, --threads <threads>  Number of threads to use
     -H, --hash               Check the hash of the local file and the remote file before copying
     -l, --log <log>          Destination of logs
+    -i, --index <index>      Path to an index cache file
     -h, --help               Print help
 
 ```
+
+#### Index cache
+
+The first thing `copy` does is scan the source tree to build the index of files
+to copy. With `--index <file>` that index is persisted: if the file already
+exists it is reused as-is and the scan is skipped, which speeds up repeated runs
+over a large source tree. Otherwise the freshly scanned index is written there
+for next time.
+
+The cache is trusted as-is and is **not** revalidated against the source, so
+files added to or removed from the source after the index was written will not
+be detected. Delete the index file to force a fresh scan.
 
 ### serve
 
