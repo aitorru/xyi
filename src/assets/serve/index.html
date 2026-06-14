@@ -1,44 +1,166 @@
 <!DOCTYPE html>
 <html lang="en">
   <head>
-    <title>Serve xyi command</title>
+    <title>xyi // serve</title>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <style>
+      :root {
+        --bg: #050505;
+        --panel: #0b0b0b;
+        --line: #f5f5f5;
+        --muted: #7f7f7f;
+        --positive: #5ee06c;
+        --warning: #ffd24a;
+        --critical: #ff5d5d;
+      }
+      * {
+        box-sizing: border-box;
+      }
       body {
-        font-family: sans-serif;
         margin: 0;
-        padding: 1rem;
-        background-color: #e7ecef;
+        min-height: 100vh;
+        background: var(--bg);
+        color: var(--line);
+        font-family: "JetBrains Mono", "SFMono-Regular", ui-monospace, monospace;
+        padding: 20px;
       }
-
-      .divider {
-        border-bottom: 3px solid black;
-        margin: 10px 0;
+      .screen {
+        max-width: 1100px;
+        margin: 0 auto;
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
       }
-
-      ul {
-        list-style: outside;
-        padding: 1rem;
-        padding-left: 2rem;
-        margin: 0.5rem;
-        transition: all 0.2s ease-in-out;
-        /* Create a rounded border with shadow */
-        border-radius: 10px;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.368);
-        background-color: white;
-        /* Reduce margin when on mobile */
+      .panel {
+        border: 1px dashed rgba(245, 245, 245, 0.7);
+        background: linear-gradient(
+          180deg,
+          rgba(255, 255, 255, 0.03),
+          rgba(255, 255, 255, 0.01)
+        );
+        padding: 16px 18px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
       }
-      @media (min-width: 768px) {
-        ul {
-          margin: 5rem;
-        }
+      .panel h1,
+      .panel h2,
+      .panel p {
+        margin: 0;
       }
-
-      li {
-        padding: 10px 0px;
-        margin: 0.5rem;
+      .eyebrow {
+        color: var(--muted);
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.14em;
+      }
+      .header-row {
+        display: flex;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: 16px;
+        flex-wrap: wrap;
+      }
+      h1 {
+        font-size: 28px;
+        letter-spacing: 0.04em;
+      }
+      .path {
+        color: var(--muted);
+        font-size: 13px;
+        word-break: break-all;
+      }
+      .path span {
+        color: var(--line);
+      }
+      .toolbar {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        flex-wrap: wrap;
+      }
+      .status {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        color: var(--muted);
+      }
+      .dot {
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        background: var(--warning);
+        box-shadow: 0 0 8px currentColor;
+      }
+      .dot.online {
+        background: var(--positive);
+      }
+      .btn {
+        border: 1px solid rgba(245, 245, 245, 0.75);
+        background: transparent;
+        color: var(--line);
+        font-family: inherit;
+        font-size: 13px;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        padding: 9px 16px;
         cursor: pointer;
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        transition: all 0.15s ease-in-out;
+      }
+      .btn:hover {
+        background: var(--line);
+        color: var(--bg);
+      }
+      .list {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+      }
+      .list li {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 11px 4px;
+        border-top: 1px solid rgba(255, 255, 255, 0.08);
+        cursor: pointer;
+        transition: background 0.12s ease-in-out;
+      }
+      .list li:first-child {
+        border-top: none;
+      }
+      .list li:hover {
+        background: rgba(255, 255, 255, 0.04);
+      }
+      .list a {
+        color: var(--line);
+        text-decoration: none;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        width: 100%;
+      }
+      .glyph {
+        color: var(--muted);
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        min-width: 38px;
+      }
+      .folder .glyph {
+        color: var(--warning);
+      }
+      .file .glyph {
+        color: var(--positive);
       }
     </style>
     <script type="module">
@@ -73,50 +195,74 @@
       let ws_updator = new WebSocket(url.href);
 
       function App(props) {
-        return html`<div>
-          <h1>Current dir: ${props.data.current_dir}</h1>
-          <div class="divider"></div>
-          <ul>
-            <li
-              onclick=${() =>
-                ws_updator.send(
-                  JSON.stringify({ message_type: "up_dir", message: "" })
-                )}
-            >
-              📁 ..
-            </li>
-            ${props.data.folders.map(
-              (folder) =>
-                html`<li
-                  onclick=${() => {
-                    ws_updator.send(
-                      JSON.stringify({
-                        message_type: "change_dir",
-                        message: folder.path,
-                      })
-                    );
-                  }}
-                >
-                  📁 ${folder.name}
-                </li>`
-            )}
-            ${props.data.files.map(
-              (file) =>
-                html`<li>
-                  <a
-                    target="_blank"
-                    href=${new URL(
-                      "/download?path=" + btoa(file.path),
-                      window.location.href
-                    )}
-                    >📋 ${file.name}
-                  </a>
-                </li>`
-            )}
-          </ul>
-          <div class="divider"></div>
-          <h3>Socket connected: ${socket_connected ? "🟢" : "🟡"}</h3>
-        </div> `;
+        return html`<main class="screen">
+          <section class="panel">
+            <div class="header-row">
+              <div>
+                <div class="eyebrow">xyi / serve</div>
+                <h1>File Server</h1>
+              </div>
+              <div class="toolbar">
+                <span class="status">
+                  <span class="dot ${props.status ? "online" : ""}"></span>
+                  ${props.status ? "connected" : "reconnecting"}
+                </span>
+                <a class="btn" href=${new URL("/download_zip", window.location.href)}>
+                  ⤓ Download all (.zip)
+                </a>
+              </div>
+            </div>
+            <p class="path">serving · <span>${props.data.current_dir}</span></p>
+          </section>
+
+          <section class="panel">
+            <div class="eyebrow">Directory listing</div>
+            <ul class="list">
+              <li
+                class="folder"
+                onclick=${() =>
+                  ws_updator.send(
+                    JSON.stringify({ message_type: "up_dir", message: "" })
+                  )}
+              >
+                <span class="glyph">dir</span>
+                ..
+              </li>
+              ${props.data.folders.map(
+                (folder) =>
+                  html`<li
+                    class="folder"
+                    onclick=${() => {
+                      ws_updator.send(
+                        JSON.stringify({
+                          message_type: "change_dir",
+                          message: folder.path,
+                        })
+                      );
+                    }}
+                  >
+                    <span class="glyph">dir</span>
+                    ${folder.name}
+                  </li>`
+              )}
+              ${props.data.files.map(
+                (file) =>
+                  html`<li class="file">
+                    <a
+                      target="_blank"
+                      href=${new URL(
+                        "/download?path=" + btoa(file.path),
+                        window.location.href
+                      )}
+                    >
+                      <span class="glyph">file</span>
+                      ${file.name}
+                    </a>
+                  </li>`
+              )}
+            </ul>
+          </section>
+        </main>`;
       }
 
       ws.onmessage = (ev) => {
