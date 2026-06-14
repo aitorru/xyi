@@ -144,7 +144,13 @@ async fn realtime_file_system(app_state: AppState, mut ws: WebSocket) {
                 serde_json::to_string(&*current_dir).unwrap()
             );
         }
-        let _ = ws.send(Message::Text(contents)).await.unwrap();
+        // The client may disconnect at any time (browser tab closed, connection
+        // aborted, ...). Treat a failed send as "client gone" and end the task
+        // gracefully instead of unwrapping, which would panic the worker and —
+        // with `panic = "abort"` in release — take the whole server down.
+        if ws.send(Message::Text(contents)).await.is_err() {
+            break;
+        }
     }
 }
 
