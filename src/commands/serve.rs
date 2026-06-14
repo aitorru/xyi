@@ -1,4 +1,5 @@
 use axum::body::Body;
+use axum::body::StreamBody;
 use axum::http::{HeaderMap, Request, Response};
 use axum::response::IntoResponse;
 use axum::routing::get;
@@ -11,11 +12,13 @@ use axum::{
     http::StatusCode,
 };
 use base64::Engine;
+use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use std::{
     println,
     sync::{Arc, Mutex},
 };
+use tokio_util::io::ReaderStream;
 use tower::ServiceExt;
 #[derive(Clone)]
 struct AppState {
@@ -216,50 +219,102 @@ async fn download_file(
     Ok(serve_file.oneshot(request).await)
 }
 
-async fn download_zip(State(state): State<AppState>) -> impl IntoResponse {
+/// Removes the backing temp file once the response stream is dropped.
+struct TempFileGuard(std::path::PathBuf);
+
+impl Drop for TempFileGuard {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
+async fn download_zip(State(state): State<AppState>) -> axum::response::Response {
     // Snapshot the directory currently being served.
     let root = {
         let current_dir = state.current_dir.lock().unwrap();
         current_dir.clone()
     };
 
-    // Building the zip is blocking IO, so keep it off the async executor.
-    let result = tokio::task::spawn_blocking(move || zip_directory(&root)).await;
+    // Stream the archive through a temp file on disk instead of buffering the
+    // whole thing in memory: building the zip in a `Vec` would try to allocate
+    // gigabytes at once for large trees, which aborts the process (especially on
+    // 32-bit targets where the address space cannot satisfy the allocation).
+    let unique = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let tmp_path =
+        std::env::temp_dir().join(format!("xyi-serve-{}-{}.zip", std::process::id(), unique));
 
-    match result {
-        Ok(Ok((bytes, name))) => Response::builder()
-            .header("content-type", "application/zip")
-            .header(
-                "content-disposition",
-                format!("attachment; filename=\"{}.zip\"", name),
+    // Building the zip is blocking IO, so keep it off the async executor.
+    let build_path = tmp_path.clone();
+    let build_root = root.clone();
+    let result =
+        tokio::task::spawn_blocking(move || zip_directory_to(&build_root, &build_path)).await;
+
+    let name = match result {
+        Ok(Ok(name)) => name,
+        Ok(Err(err)) => {
+            let _ = std::fs::remove_file(&tmp_path);
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to build zip: {}", err),
             )
-            .body(Body::from(bytes))
-            .unwrap()
-            .into_response(),
-        Ok(Err(err)) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to build zip: {}", err),
+                .into_response();
+        }
+        Err(err) => {
+            let _ = std::fs::remove_file(&tmp_path);
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to build zip: {}", err),
+            )
+                .into_response();
+        }
+    };
+
+    let file = match tokio::fs::File::open(&tmp_path).await {
+        Ok(file) => file,
+        Err(err) => {
+            let _ = std::fs::remove_file(&tmp_path);
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to open zip: {}", err),
+            )
+                .into_response();
+        }
+    };
+
+    // The guard is moved into the stream closure so the temp file is deleted
+    // once the whole response has been sent (or the client disconnects).
+    let guard = TempFileGuard(tmp_path);
+    let stream = ReaderStream::new(file).map(move |chunk| {
+        let _keep = &guard;
+        chunk
+    });
+
+    Response::builder()
+        .header("content-type", "application/zip")
+        .header(
+            "content-disposition",
+            format!("attachment; filename=\"{}.zip\"", name),
         )
-            .into_response(),
-        Err(err) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to build zip: {}", err),
-        )
-            .into_response(),
-    }
+        .body(StreamBody::new(stream))
+        .unwrap()
+        .into_response()
 }
 
-/// Recursively zip every file under `root`, returning the archive bytes together
-/// with a name suitable for the downloaded file.
-fn zip_directory(root: &std::path::Path) -> std::io::Result<(Vec<u8>, String)> {
-    let buffer = std::io::Cursor::new(Vec::new());
-    let mut zip = zip::ZipWriter::new(buffer);
+/// Recursively zip every file under `root` into `dest`, returning a name
+/// suitable for the downloaded file. The archive is written straight to disk so
+/// memory usage stays low regardless of how large the tree is.
+fn zip_directory_to(root: &std::path::Path, dest: &std::path::Path) -> std::io::Result<String> {
+    let file = std::fs::File::create(dest)?;
+    let mut zip = zip::ZipWriter::new(file);
     let options =
         zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
 
     add_dir_to_zip(&mut zip, root, root, options)?;
+    zip.finish()?;
 
-    let cursor = zip.finish()?;
     let name = root
         .file_name()
         .and_then(|name| name.to_str())
@@ -267,7 +322,7 @@ fn zip_directory(root: &std::path::Path) -> std::io::Result<(Vec<u8>, String)> {
         .unwrap_or("root")
         .to_owned();
 
-    Ok((cursor.into_inner(), name))
+    Ok(name)
 }
 
 fn add_dir_to_zip<W: std::io::Write + std::io::Seek>(
