@@ -331,8 +331,20 @@ fn add_dir_to_zip<W: std::io::Write + std::io::Seek>(
     dir: &std::path::Path,
     options: zip::write::FileOptions,
 ) -> std::io::Result<()> {
-    for entry in std::fs::read_dir(dir)? {
-        let entry = entry?;
+    // Be tolerant of unreadable entries: a single inaccessible file or
+    // directory (permission denied, file in use, Windows reparse-point
+    // junctions like "My Music" inside Documents, ...) must not abort the whole
+    // archive. We skip what we cannot read instead of propagating the error.
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(_) => return Ok(()),
+    };
+
+    for entry in entries {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(_) => continue,
+        };
         let path = entry.path();
         let relative = match path.strip_prefix(base) {
             Ok(relative) => relative,
@@ -341,13 +353,30 @@ fn add_dir_to_zip<W: std::io::Write + std::io::Seek>(
         // Zip archives always use forward slashes for entry names.
         let name = relative.to_string_lossy().replace('\\', "/");
 
-        if path.is_dir() {
-            zip.add_directory(format!("{}/", name), options)?;
+        // Use the directory entry's own type so symlinks/junctions are detected
+        // without following them (avoids access-denied errors and loops).
+        let file_type = match entry.file_type() {
+            Ok(file_type) => file_type,
+            Err(_) => continue,
+        };
+        if file_type.is_symlink() {
+            continue;
+        }
+
+        if file_type.is_dir() {
+            let _ = zip.add_directory(format!("{}/", name), options);
             add_dir_to_zip(zip, base, &path, options)?;
-        } else {
-            zip.start_file(name, options)?;
-            let mut file = std::fs::File::open(&path)?;
-            std::io::copy(&mut file, zip)?;
+        } else if file_type.is_file() {
+            // Open the file before adding the entry so a failure to read it
+            // doesn't leave a half-written entry in the archive.
+            let mut file = match std::fs::File::open(&path) {
+                Ok(file) => file,
+                Err(_) => continue,
+            };
+            if zip.start_file(name, options).is_err() {
+                continue;
+            }
+            let _ = std::io::copy(&mut file, zip);
         }
     }
     Ok(())
