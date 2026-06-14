@@ -73,6 +73,7 @@ pub async fn entry(port: &str, starting_dir: &str) {
         .route("/state", get(ws))
         .route("/update_state", get(ws_change))
         .route("/download", get(download_file))
+        .route("/download_zip", get(download_zip))
         .route("/preact.mjs", get(download_preact_mjs))
         .route("/htm.mjs", get(download_htm_mjs))
         .with_state(shared_state);
@@ -213,6 +214,88 @@ async fn download_file(
 
     let serve_file = tower_http::services::fs::ServeFile::new(&path);
     Ok(serve_file.oneshot(request).await)
+}
+
+async fn download_zip(State(state): State<AppState>) -> impl IntoResponse {
+    // Snapshot the directory currently being served.
+    let root = {
+        let current_dir = state.current_dir.lock().unwrap();
+        current_dir.clone()
+    };
+
+    // Building the zip is blocking IO, so keep it off the async executor.
+    let result = tokio::task::spawn_blocking(move || zip_directory(&root)).await;
+
+    match result {
+        Ok(Ok((bytes, name))) => Response::builder()
+            .header("content-type", "application/zip")
+            .header(
+                "content-disposition",
+                format!("attachment; filename=\"{}.zip\"", name),
+            )
+            .body(Body::from(bytes))
+            .unwrap()
+            .into_response(),
+        Ok(Err(err)) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to build zip: {}", err),
+        )
+            .into_response(),
+        Err(err) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to build zip: {}", err),
+        )
+            .into_response(),
+    }
+}
+
+/// Recursively zip every file under `root`, returning the archive bytes together
+/// with a name suitable for the downloaded file.
+fn zip_directory(root: &std::path::Path) -> std::io::Result<(Vec<u8>, String)> {
+    let buffer = std::io::Cursor::new(Vec::new());
+    let mut zip = zip::ZipWriter::new(buffer);
+    let options =
+        zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+
+    add_dir_to_zip(&mut zip, root, root, options)?;
+
+    let cursor = zip.finish()?;
+    let name = root
+        .file_name()
+        .and_then(|name| name.to_str())
+        .filter(|name| !name.is_empty())
+        .unwrap_or("root")
+        .to_owned();
+
+    Ok((cursor.into_inner(), name))
+}
+
+fn add_dir_to_zip<W: std::io::Write + std::io::Seek>(
+    zip: &mut zip::ZipWriter<W>,
+    base: &std::path::Path,
+    dir: &std::path::Path,
+    options: zip::write::FileOptions,
+) -> std::io::Result<()> {
+    for entry in std::fs::read_dir(dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        let relative = match path.strip_prefix(base) {
+            Ok(relative) => relative,
+            Err(_) => continue,
+        };
+        // Zip archives always use forward slashes for entry names.
+        let name = relative.to_string_lossy().replace('\\', "/");
+
+        if path.is_dir() {
+            zip.add_directory(format!("{}/", name), options)?;
+            add_dir_to_zip(zip, base, &path, options)?;
+        } else {
+            zip.start_file(name, options)?;
+            let mut file = std::fs::File::open(&path)?;
+            std::io::copy(&mut file, zip)?;
+        }
+    }
+    Ok(())
 }
 
 async fn download_preact_mjs() -> impl IntoResponse {
