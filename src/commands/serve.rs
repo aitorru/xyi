@@ -254,8 +254,8 @@ async fn download_zip(State(state): State<AppState>) -> impl IntoResponse {
 fn zip_directory(root: &std::path::Path) -> std::io::Result<(Vec<u8>, String)> {
     let buffer = std::io::Cursor::new(Vec::new());
     let mut zip = zip::ZipWriter::new(buffer);
-    let options = zip::write::FileOptions::default()
-        .compression_method(zip::CompressionMethod::Deflated);
+    let options =
+        zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
 
     add_dir_to_zip(&mut zip, root, root, options)?;
 
