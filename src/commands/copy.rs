@@ -103,7 +103,7 @@ pub async fn entry(
     // failure to open the log file warns the user and carries on instead of
     // aborting the whole copy.
     let log_writer = match log_path {
-        Some(path) => match OpenOptions::new().write(true).append(true).open(&path) {
+        Some(path) => match open_log_file(&path) {
             Ok(file) => Some(Mutex::new(file)),
             Err(error) => {
                 eprintln!(
@@ -130,6 +130,27 @@ pub async fn entry(
         log_writer,
     )
     .await;
+}
+
+/// Open the copy log file for appending, creating it (and any missing parent
+/// directories) when it does not exist yet. The previous behaviour required the
+/// log file to already exist, which made `--log` fail on a fresh path; opening
+/// with `create(true)` means a brand-new file works the same as an existing one,
+/// while `append(true)` still preserves the contents of an existing log.
+fn open_log_file(path: &str) -> std::io::Result<File> {
+    // Create the parent directory tree first so logging into a not-yet-existing
+    // folder (for example `logs/copy.log`) works out of the box. A path without
+    // a parent (a bare file name) has nothing to create, hence the empty check.
+    if let Some(parent) = std::path::Path::new(path).parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent)?;
+        }
+    }
+    OpenOptions::new()
+        .write(true)
+        .append(true)
+        .create(true)
+        .open(path)
 }
 
 /// Read a single directory into its files and sub-folders, turning any I/O
@@ -561,5 +582,91 @@ mod tests {
         let parent = PathBuf::from("/somewhere/else");
         let root = Path::new("/data/src");
         assert_eq!(relative_dir(&parent, root), Path::new("/somewhere/else"));
+    }
+
+    /// A unique temporary directory for a single test, removed on drop so the
+    /// tests do not leave files behind even when an assertion fails.
+    struct TempDir {
+        path: PathBuf,
+    }
+
+    impl TempDir {
+        fn new(tag: &str) -> Self {
+            let mut path = std::env::temp_dir();
+            let unique = format!(
+                "xyi-test-{}-{}-{:?}",
+                tag,
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            );
+            path.push(unique);
+            std::fs::create_dir_all(&path).unwrap();
+            TempDir { path }
+        }
+
+        fn join(&self, name: &str) -> PathBuf {
+            self.path.join(name)
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.path);
+        }
+    }
+
+    #[test]
+    fn open_log_file_creates_a_missing_file() {
+        let dir = TempDir::new("missing-file");
+        let log = dir.join("copy.log");
+        assert!(!log.exists());
+
+        let mut file = open_log_file(log.to_str().unwrap()).unwrap();
+        file.write_all(b"line\n").unwrap();
+
+        assert_eq!(std::fs::read_to_string(&log).unwrap(), "line\n");
+    }
+
+    #[test]
+    fn open_log_file_creates_missing_parent_directories() {
+        let dir = TempDir::new("missing-parent");
+        let log = dir.join("nested/deeper/copy.log");
+        assert!(!log.parent().unwrap().exists());
+
+        let mut file = open_log_file(log.to_str().unwrap()).unwrap();
+        file.write_all(b"line\n").unwrap();
+
+        assert!(log.exists());
+        assert_eq!(std::fs::read_to_string(&log).unwrap(), "line\n");
+    }
+
+    #[test]
+    fn open_log_file_appends_to_an_existing_file() {
+        let dir = TempDir::new("append");
+        let log = dir.join("copy.log");
+        std::fs::write(&log, "existing\n").unwrap();
+
+        let mut file = open_log_file(log.to_str().unwrap()).unwrap();
+        file.write_all(b"new\n").unwrap();
+
+        assert_eq!(std::fs::read_to_string(&log).unwrap(), "existing\nnew\n");
+    }
+
+    #[test]
+    fn open_log_file_handles_a_bare_file_name() {
+        // A path with no parent component must not error out trying to create an
+        // empty directory; it should just open the file in the current dir.
+        let dir = TempDir::new("bare-name");
+        let previous = std::env::current_dir().unwrap();
+        std::env::set_current_dir(&dir.path).unwrap();
+
+        let result = open_log_file("copy.log");
+
+        std::env::set_current_dir(previous).unwrap();
+        assert!(result.is_ok());
+        assert!(dir.join("copy.log").exists());
     }
 }
