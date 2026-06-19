@@ -8,8 +8,9 @@ A collection of cross-platform coreutils you may need, bundled into a single bin
 cargo install --git https://github.com/aitorru/xyi
 ```
 
-Pre-built binaries (Linux and Windows 32/64-bit) are also published on the
-[releases page](https://github.com/aitorru/xyi/releases).
+Pre-built binaries are also published on the
+[releases page](https://github.com/aitorru/xyi/releases) for Linux
+(x86_64, x86, arm64, arm32) and Windows (x86_64, x86, arm64).
 
 ## Coreutils
 
@@ -40,6 +41,7 @@ Usage: xyi.exe {copy|--copy|-C} [OPTIONS] --from <from> --to <to>
     -s, --skip               Skip copy if file skip but does not check if the file is the same
     -T, --threads <threads>  Number of threads to use
     -H, --hash               Check the hash of the local file and the remote file before copying
+    -c, --continue-on-error  Skip files that fail to read/write and report them at the end instead of aborting
     -l, --log <log>          Destination of logs
     -i, --index <index>      Path to an index cache file
     -h, --help               Print help
@@ -60,7 +62,8 @@ be detected. Delete the index file to force a fresh scan.
 
 ### serve
 
-Static file server.
+Static file server. The web UI lets you browse the directory and download the
+whole tree as a single zip archive.
 
 ```
 serve files in the current directory using HTTP
