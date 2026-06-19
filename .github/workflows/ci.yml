@@ -1,4 +1,4 @@
-name: ci
+name: CI
 
 # Verify every commit pushed to a branch and every pull request before it is merged.
 on:
@@ -9,7 +9,7 @@ on:
 
 # Cancel in-progress runs for the same ref to save CI minutes.
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 env:
@@ -17,7 +17,7 @@ env:
 
 jobs:
   check:
-    name: format, lint, build & test
+    name: Format, lint, build & test
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

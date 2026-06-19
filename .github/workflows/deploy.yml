@@ -1,30 +1,124 @@
-name: deploy
+name: Release
+
+# Build every supported target in parallel and publish a rolling
+# "latest" development release whenever main moves forward.
 on:
   push:
     branches:
       - main
+
+# Avoid stacking releases when several commits land back to back.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
-  test:
-    runs-on: ubuntu-latest
-    permissions: write-all
+  build:
+    name: Build | ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      # One failing target should not abort the binaries that did build.
+      fail-fast: false
+      matrix:
+        include:
+          # ---- Linux ----------------------------------------------------
+          - name: linux-x86_64
+            target: x86_64-unknown-linux-gnu
+            runner: ubuntu-latest
+            cross: true
+            artifact: xyi-linux-x86_64
+          - name: linux-x86
+            target: i686-unknown-linux-gnu
+            runner: ubuntu-latest
+            cross: true
+            artifact: xyi-linux-x86
+          - name: linux-arm64
+            target: aarch64-unknown-linux-gnu
+            runner: ubuntu-latest
+            cross: true
+            artifact: xyi-linux-arm64
+          - name: linux-arm32
+            target: armv7-unknown-linux-gnueabihf
+            runner: ubuntu-latest
+            cross: true
+            artifact: xyi-linux-arm32
+          # ---- Windows --------------------------------------------------
+          - name: windows-x86_64
+            target: x86_64-pc-windows-gnu
+            runner: ubuntu-latest
+            cross: true
+            ext: .exe
+            artifact: xyi-windows-x86_64.exe
+          - name: windows-x86
+            target: i686-pc-windows-gnu
+            runner: ubuntu-latest
+            cross: true
+            ext: .exe
+            artifact: xyi-windows-x86.exe
+          - name: windows-arm64
+            target: aarch64-pc-windows-msvc
+            runner: windows-11-arm
+            cross: false
+            ext: .exe
+            artifact: xyi-windows-arm64.exe
     steps:
-      - uses: actions/checkout@v4
-      - name: Setup | Rust
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup | Rust toolchain
         uses: dtolnay/rust-toolchain@stable
-      - run: cargo install cross --git https://github.com/cross-rs/cross
-      - run: cross build --release --target i686-pc-windows-gnu
-      - run: cross build --release --target x86_64-pc-windows-gnu
-      - run: cargo build --release
-      - run: mkdir target/32bit
-      - run: mkdir target/64bit
-      - run: cp target/i686-pc-windows-gnu/release/*.exe target/xyi-32bit.exe
-      - run: cp target/x86_64-pc-windows-gnu/release/*.exe target/xyi-64bit.exe
-      - run: cp target/release/xyi target/xyi
-      - uses: "marvinpinto/action-automatic-releases@latest"
         with:
-          repo_token: "${{ secrets.GITHUB_TOKEN }}"
-          automatic_release_tag: "latest"
+          targets: ${{ matrix.target }}
+
+      - name: Cache | Cargo build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Setup | cross
+        if: ${{ matrix.cross }}
+        run: cargo install cross --git https://github.com/cross-rs/cross
+
+      - name: Build | cross
+        if: ${{ matrix.cross }}
+        run: cross build --release --target ${{ matrix.target }}
+
+      - name: Build | cargo (native)
+        if: ${{ !matrix.cross }}
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Package | rename binary
+        shell: bash
+        run: cp "target/${{ matrix.target }}/release/xyi${{ matrix.ext }}" "${{ matrix.artifact }}"
+
+      - name: Upload | build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}
+          if-no-files-found: error
+
+  release:
+    name: Release | publish development build
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download | all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Release | publish "latest" prerelease
+        uses: marvinpinto/action-automatic-releases@latest
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          automatic_release_tag: latest
           prerelease: true
-          title: "Automatic Development Build"
-          files: |
-            target/*xyi*
+          title: Automatic Development Build
+          files: artifacts/*
