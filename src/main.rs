@@ -112,6 +112,14 @@ async fn main() {
                         .help("Directory to start serving")
                         .required(false)
                         .num_args(1),
+                )
+                .arg(
+                    Arg::new("host")
+                        .short('b')
+                        .long("host")
+                        .help("Address to bind to (e.g. 127.0.0.1 behind a reverse proxy)")
+                        .required(false)
+                        .num_args(1),
                 ),
         )
         .subcommand(
@@ -280,7 +288,11 @@ async fn main() {
                 Some(dir) => dir,
                 None => ".",
             };
-            commands::serve::entry(port, starting_dir).await;
+            let host = match serve_match.get_one::<String>("host") {
+                Some(host) => host,
+                None => "0.0.0.0",
+            };
+            commands::serve::entry(host, port, starting_dir).await;
         }
         Some(("download", download_match)) => {
             let url = download_match.get_one::<String>("url").unwrap();

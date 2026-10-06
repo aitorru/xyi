@@ -63,7 +63,9 @@ be detected. Delete the index file to force a fresh scan.
 ### serve
 
 Static file server. The web UI lets you browse the directory and download the
-whole tree as a single zip archive.
+whole tree as a single zip archive. Browsing and downloads are confined to the
+served directory: `..` stops there, and paths outside it (symlinks included)
+are answered with 404.
 
 ```
 serve files in the current directory using HTTP
@@ -73,6 +75,7 @@ Usage: xyi {serve|--serve|-S} [OPTIONS]
 Options:
   -p, --port <port>  Port to serve
   -d, --dir <dir>    Directory to start serving
+  -b, --host <host>  Address to bind to (default 0.0.0.0; 127.0.0.1 behind a reverse proxy)
   -h, --help         Print help
 ```
 

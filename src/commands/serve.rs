@@ -22,6 +22,10 @@ use tokio_util::io::ReaderStream;
 use tower::ServiceExt;
 #[derive(Clone)]
 struct AppState {
+    /// The directory passed to `--dir`, canonicalized. Browsing and downloads
+    /// are confined to it: without this, `..` and `/download?path=` reach any
+    /// file the process can read.
+    root: Arc<std::path::PathBuf>,
     broadcast_sender: tokio::sync::broadcast::Sender<u8>,
     current_dir: Arc<Mutex<std::path::PathBuf>>,
     local_folders: Arc<Mutex<Vec<LocalFolder>>>,
@@ -47,12 +51,20 @@ struct DownloadQuery {
     path: String,
 }
 
-pub async fn entry(port: &str, starting_dir: &str) {
+pub async fn entry(host: &str, port: &str, starting_dir: &str) {
     let (tx, _) = tokio::sync::broadcast::channel::<u8>(1);
+    let served_root = match std::fs::canonicalize(starting_dir) {
+        Ok(served_root) => served_root,
+        Err(err) => {
+            eprintln!("Cannot serve {}: {}", starting_dir, err);
+            std::process::exit(1);
+        }
+    };
     // Create the satate of the app
     let shared_state = AppState {
+        root: Arc::new(served_root.clone()),
         broadcast_sender: tx.clone(),
-        current_dir: Arc::new(Mutex::new(std::path::PathBuf::from(starting_dir))),
+        current_dir: Arc::new(Mutex::new(served_root)),
         local_folders: Arc::new(Mutex::new(vec![])),
         local_files: Arc::new(Mutex::new(vec![])),
     };
@@ -80,24 +92,53 @@ pub async fn entry(port: &str, starting_dir: &str) {
         .route("/preact.mjs", get(download_preact_mjs))
         .route("/htm.mjs", get(download_htm_mjs))
         .with_state(shared_state);
-    let address = format!("0.0.0.0:{}", port);
-    println!("Starting server on address http://localhost:{}", port);
-    axum::Server::bind(&address.parse().unwrap())
+    let address: std::net::SocketAddr = match format!("{}:{}", host, port).parse() {
+        Ok(address) => address,
+        Err(err) => {
+            eprintln!("Invalid address {}:{}: {}", host, port, err);
+            std::process::exit(1);
+        }
+    };
+    println!("Starting server on address http://{}", address);
+    axum::Server::bind(&address)
         .serve(app.into_make_service())
         .await
         .unwrap();
+}
+
+/// Resolve `path` (symlinks included) and return it only if it lies inside
+/// `root`.
+fn confine(root: &std::path::Path, path: &std::path::Path) -> Option<std::path::PathBuf> {
+    let path = std::fs::canonicalize(path).ok()?;
+    path.starts_with(root).then_some(path)
 }
 
 fn scan_folder(shared_state_clone: &AppState) {
     let mut folders: Vec<LocalFolder> = vec![];
     let mut files: Vec<LocalFile> = vec![];
     {
-        let current_dir_mutex = shared_state_clone.current_dir.lock().unwrap();
+        let mut current_dir_mutex = shared_state_clone.current_dir.lock().unwrap();
+        // The directory being browsed can disappear under us (deleted or
+        // moved by another program). Fall back to the root instead of
+        // panicking, which with `panic = "abort"` would kill the server.
+        let entries = match std::fs::read_dir(&*current_dir_mutex) {
+            Ok(entries) => entries,
+            Err(_) => {
+                *current_dir_mutex = (*shared_state_clone.root).clone();
+                match std::fs::read_dir(&*current_dir_mutex) {
+                    Ok(entries) => entries,
+                    Err(_) => return,
+                }
+            }
+        };
         // Scan all the files and folders in the current directory
-        for entry in std::fs::read_dir(&*current_dir_mutex).unwrap() {
-            let entry = entry.unwrap();
+        for entry in entries {
+            let entry = match entry {
+                Ok(entry) => entry,
+                Err(_) => continue,
+            };
             let path = entry.path();
-            let name = entry.file_name().into_string().unwrap();
+            let name = entry.file_name().to_string_lossy().into_owned();
             if path.is_dir() {
                 folders.push(LocalFolder { path, name });
             } else {
@@ -175,15 +216,21 @@ async fn update_state(app_state: AppState, mut ws: WebSocket) {
             "change_dir" => {
                 let mut current_dir = app_state.current_dir.lock().unwrap();
                 let new_dir = std::path::PathBuf::from(message.message);
-                if new_dir.is_dir() {
-                    *current_dir = new_dir;
+                if let Some(new_dir) = confine(&app_state.root, &new_dir) {
+                    if new_dir.is_dir() {
+                        *current_dir = new_dir;
+                    }
                 }
             }
             "up_dir" => {
                 let mut current_dir = app_state.current_dir.lock().unwrap();
-                let new_dir = current_dir.parent().unwrap();
-                if new_dir.is_dir() {
-                    *current_dir = new_dir.to_path_buf();
+                // Never above the served root.
+                if *current_dir != *app_state.root {
+                    if let Some(new_dir) = current_dir.parent() {
+                        if new_dir.is_dir() {
+                            *current_dir = new_dir.to_path_buf();
+                        }
+                    }
                 }
             }
             _ => {}
@@ -192,6 +239,7 @@ async fn update_state(app_state: AppState, mut ws: WebSocket) {
 }
 
 async fn download_file(
+    State(state): State<AppState>,
     query: Query<DownloadQuery>,
     _: HeaderMap,
     request: Request<Body>,
@@ -215,11 +263,12 @@ async fn download_file(
         }
     };
 
-    // Check if the file exists
-    let path = std::path::Path::new(&path);
-    if !path.exists() {
-        return Err((StatusCode::NOT_FOUND, "File not found".to_owned()));
-    }
+    // Only files under the served root, and only regular files. Anything
+    // else gets the same answer as a missing file.
+    let path = match confine(&state.root, std::path::Path::new(&path)) {
+        Some(path) if path.is_file() => path,
+        _ => return Err((StatusCode::NOT_FOUND, "File not found".to_owned())),
+    };
 
     let serve_file = tower_http::services::fs::ServeFile::new(&path);
     Ok(serve_file.oneshot(request).await)
