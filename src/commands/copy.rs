@@ -1,12 +1,15 @@
 use std::{
     fs::{File, OpenOptions},
-    io::{BufRead, BufReader, BufWriter, Read, Write},
+    io::{BufReader, BufWriter, Read, Write},
     sync::Mutex,
 };
 
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
-use seahash::hash;
+
+/// Chunk size for copying and comparing files. Large chunks matter on network
+/// shares (SMB over a VPN), where every request costs a full round trip.
+const COPY_BUFFER_SIZE: usize = 4 * 1024 * 1024;
 
 #[derive(serde::Serialize, serde::Deserialize)]
 struct FilesSource {
@@ -435,7 +438,9 @@ fn copy_single_file(
     // Run the actual copy in an inner closure so the per-file progress bar is
     // always cleared, regardless of whether we succeed or fail.
     let outcome = (|| -> Result<(), CopyError> {
-        // If the to_path is a file, get the hash and compare them
+        // If the to_path is a file, decide whether it can be left alone. A size
+        // mismatch always means the destination is stale (for example a copy cut
+        // short by a network drop), so it is only skipped with `--skip`.
         if to_path.is_file() && !force {
             let to_len = std::fs::metadata(&to_path)
                 .map_err(|error| {
@@ -445,77 +450,74 @@ fn copy_single_file(
                     )
                 })?
                 .len();
-            if to_len == source_len && !hash_check {
-                transfering_bar_global.inc(1);
-                return Ok(());
-            } else if !hash_check {
-                return Ok(());
-            }
-            if skip {
+            if skip || (to_len == source_len && !hash_check) {
                 transfering_bar_global.inc(1);
                 return Ok(());
             }
-            // Use seahash to compare the hashes of the files
-            let mut from_file = std::fs::File::open(from_path.clone()).map_err(|error| {
-                CopyError::new(&from_path, format!("could not open source: {}", error))
-            })?;
-            let mut to_file = std::fs::File::open(&to_path).map_err(|error| {
-                CopyError::new(&to_path, format!("could not open destination: {}", error))
-            })?;
-            // Read the files in chunks, hash them and compare. If some operation fails, it means that the files are different.
-            let mut same_file = true;
-            loop {
-                let mut buffer_from = [0u8; 1024 * 10];
-                let mut buffer_to = [0u8; 1024 * 10];
-                let read_from = from_file.read(&mut buffer_from).map_err(|error| {
-                    CopyError::new(&from_path, format!("could not read source: {}", error))
+            if to_len == source_len {
+                let mut from_file = std::fs::File::open(from_path.clone()).map_err(|error| {
+                    CopyError::new(&from_path, format!("could not open source: {}", error))
                 })?;
-                let _ = to_file.read(&mut buffer_to).map_err(|error| {
-                    CopyError::new(&to_path, format!("could not read destination: {}", error))
+                let mut to_file = std::fs::File::open(&to_path).map_err(|error| {
+                    CopyError::new(&to_path, format!("could not open destination: {}", error))
                 })?;
-                if hash(&buffer_from) != hash(&buffer_to) {
-                    same_file = false;
-                    break;
+                // Compare the files in large chunks: on network shares every read
+                // is a round trip, so small buffers make the check crawl.
+                let mut same_file = true;
+                let mut buffer_from = vec![0u8; COPY_BUFFER_SIZE];
+                let mut buffer_to = vec![0u8; COPY_BUFFER_SIZE];
+                loop {
+                    let read_from =
+                        read_full(&mut from_file, &mut buffer_from).map_err(|error| {
+                            CopyError::new(&from_path, format!("could not read source: {}", error))
+                        })?;
+                    let read_to = read_full(&mut to_file, &mut buffer_to).map_err(|error| {
+                        CopyError::new(&to_path, format!("could not read destination: {}", error))
+                    })?;
+                    if buffer_from[..read_from] != buffer_to[..read_to] {
+                        same_file = false;
+                        break;
+                    }
+                    // If the buffers are empty, it means that we ended reading the files
+                    if read_from == 0 {
+                        break;
+                    }
+                    individual_progress.inc(read_from as u64);
                 }
-                // If the buffers are empty, it means that we ended reading the files
-                if read_from == 0 {
-                    break;
+                if same_file {
+                    transfering_bar_global.inc(1);
+                    return Ok(());
                 }
-                individual_progress.inc(read_from as u64);
-            }
-            if same_file {
-                transfering_bar_global.inc(1);
-                return Ok(());
             }
         }
         // Reset the progress bar
         individual_progress.set_position(0);
         individual_progress.set_message(format!("Copying {}", name));
-        let mut reader_buffer = BufReader::new(&mut from_file);
-        // At this point we can know for sure that to_path does not exists
         let mut to_file = std::fs::File::create(&to_path).map_err(|error| {
             CopyError::new(&to_path, format!("could not create destination: {}", error))
         })?;
-        let mut writer_buffer = BufWriter::new(&mut to_file);
+        // Write straight from a large buffer without flushing per chunk, so a
+        // network share sees a few big writes instead of one round trip per 8 KB.
+        let mut buffer = vec![0u8; (source_len.min(COPY_BUFFER_SIZE as u64) as usize).max(1)];
         loop {
-            let bytes_read;
-            {
-                let buffer = reader_buffer.fill_buf().map_err(|error| {
-                    CopyError::new(&from_path, format!("could not read source: {}", error))
-                })?;
-                if buffer.is_empty() {
-                    break;
-                }
-                bytes_read = buffer.len();
-                writer_buffer.write_all(buffer).map_err(|error| {
-                    CopyError::new(&to_path, format!("could not write destination: {}", error))
-                })?;
+            let bytes_read = from_file.read(&mut buffer).map_err(|error| {
+                CopyError::new(&from_path, format!("could not read source: {}", error))
+            })?;
+            if bytes_read == 0 {
+                break;
             }
-            writer_buffer.flush().map_err(|error| {
-                CopyError::new(&to_path, format!("could not flush destination: {}", error))
+            to_file.write_all(&buffer[..bytes_read]).map_err(|error| {
+                CopyError::new(&to_path, format!("could not write destination: {}", error))
             })?;
             individual_progress.inc(bytes_read as u64);
-            reader_buffer.consume(bytes_read);
+        }
+        // Keep the source modification time so tools like robocopy or rsync do
+        // not see every copied file as changed. Failing to set it is not fatal.
+        if let Ok(modified) = from_file
+            .metadata()
+            .and_then(|metadata| metadata.modified())
+        {
+            let _ = to_file.set_modified(modified);
         }
         transfering_bar_global.inc(1);
         // Log the file
@@ -539,6 +541,22 @@ fn copy_single_file(
 
     individual_progress.finish_and_clear();
     outcome
+}
+
+/// Read from `reader` until `buffer` is full or the end of the file is reached,
+/// returning how many bytes were read. Unlike a single `read`, short reads (which
+/// network file systems return often) do not cut a chunk early.
+fn read_full(reader: &mut impl Read, buffer: &mut [u8]) -> std::io::Result<usize> {
+    let mut filled = 0;
+    while filled < buffer.len() {
+        match reader.read(&mut buffer[filled..]) {
+            Ok(0) => break,
+            Ok(read) => filled += read,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(filled)
 }
 
 /// Compute `parent` relative to the source `root` so the directory structure
@@ -668,5 +686,53 @@ mod tests {
         std::env::set_current_dir(previous).unwrap();
         assert!(result.is_ok());
         assert!(dir.join("copy.log").exists());
+    }
+
+    #[test]
+    fn copy_replaces_a_partial_destination_and_keeps_mtime() {
+        let dir = TempDir::new("partial");
+        let source_root = dir.join("src");
+        let dest_root = dir.join("dst");
+        std::fs::create_dir_all(&source_root).unwrap();
+        std::fs::create_dir_all(&dest_root).unwrap();
+        let source = source_root.join("file.bin");
+        let contents: Vec<u8> = (0..100_000u32).map(|i| (i % 251) as u8).collect();
+        std::fs::write(&source, &contents).unwrap();
+        let modified = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_577_934_245);
+        File::options()
+            .write(true)
+            .open(&source)
+            .unwrap()
+            .set_modified(modified)
+            .unwrap();
+        // A destination left half written, e.g. by a dropped network connection.
+        std::fs::write(dest_root.join("file.bin"), &contents[..1000]).unwrap();
+
+        let multi = MultiProgress::with_draw_target(indicatif::ProgressDrawTarget::hidden());
+        let global = multi.add(ProgressBar::hidden());
+        let file = FilesSource {
+            path: source.clone(),
+            name: "file.bin".to_string(),
+        };
+        copy_single_file(
+            &file,
+            &multi,
+            &ProgressStyle::default_bar(),
+            &global,
+            &source_root,
+            &dest_root,
+            false,
+            false,
+            false,
+            &None,
+        )
+        .unwrap();
+
+        let dest = dest_root.join("file.bin");
+        assert_eq!(std::fs::read(&dest).unwrap(), contents);
+        assert_eq!(
+            std::fs::metadata(&dest).unwrap().modified().unwrap(),
+            modified
+        );
     }
 }
