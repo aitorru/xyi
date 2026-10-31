@@ -498,7 +498,7 @@ fn copy_single_file(
         })?;
         // Write straight from a large buffer without flushing per chunk, so a
         // network share sees a few big writes instead of one round trip per 8 KB.
-        let mut buffer = vec![0u8; COPY_BUFFER_SIZE.min(source_len as usize).max(1)];
+        let mut buffer = vec![0u8; (source_len.min(COPY_BUFFER_SIZE as u64) as usize).max(1)];
         loop {
             let bytes_read = from_file.read(&mut buffer).map_err(|error| {
                 CopyError::new(&from_path, format!("could not read source: {}", error))
