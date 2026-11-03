@@ -364,8 +364,8 @@ async fn download_zip(State(state): State<AppState>) -> axum::response::Response
 fn zip_directory_to(root: &std::path::Path, dest: &std::path::Path) -> std::io::Result<String> {
     let file = std::fs::File::create(dest)?;
     let mut zip = zip::ZipWriter::new(file);
-    let options =
-        zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+    let options = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
 
     add_dir_to_zip(&mut zip, root, root, options)?;
     zip.finish()?;
@@ -384,7 +384,7 @@ fn add_dir_to_zip<W: std::io::Write + std::io::Seek>(
     zip: &mut zip::ZipWriter<W>,
     base: &std::path::Path,
     dir: &std::path::Path,
-    options: zip::write::FileOptions,
+    options: zip::write::SimpleFileOptions,
 ) -> std::io::Result<()> {
     // Be tolerant of unreadable entries: a single inaccessible file or
     // directory (permission denied, file in use, Windows reparse-point
